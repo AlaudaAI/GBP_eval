@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { background: #f8fafc; color: #0f172a; }
+
+@media print {
+  *, *::before, *::after {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+  body > header, body aside, .print\:hidden { display: none !important; }
+
+  /* Defeat the layout flex in print. */
+  body > div {
+    display: block !important;
+    max-width: none !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  body main {
+    display: block !important;
+    width: 100% !important;
+    flex: none !important;
+  }
+  .report { width: 100% !important; max-width: none !important; }
+
+  .report-section { page-break-inside: avoid; break-inside: avoid; }
+  @page { margin: 18mm 16mm; }
+
+  /* Report-only background tweak for readable print. */
+  body[data-report="true"] { background: #ffffff; }
+}
