@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useWorkspace } from "@/components/WorkspaceProvider";
+import { WorkspaceFallback } from "@/components/WorkspaceFallback";
 import {
   emptySettings,
   REQUIRED_SETTINGS,
@@ -21,7 +22,7 @@ export default function SettingsPage() {
   }, [activeProject?.id, activeProject?.settings]);
 
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
-  if (!activeProject) return <p className="text-sm text-slate-500">No project.</p>;
+  if (!activeProject) return <WorkspaceFallback />;
 
   return (
     <div className="space-y-6">

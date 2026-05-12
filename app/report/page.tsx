@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { FEATURES } from "@/lib/features";
 import { useWorkspace } from "@/components/WorkspaceProvider";
+import { WorkspaceFallback } from "@/components/WorkspaceFallback";
 
 export default function FullReportPage() {
   const { activeProject, loading } = useWorkspace();
@@ -25,7 +26,7 @@ export default function FullReportPage() {
   }, [print, loading, activeProject]);
 
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
-  if (!activeProject) return <p className="text-sm text-slate-500">No project.</p>;
+  if (!activeProject) return <WorkspaceFallback />;
 
   const ranAt = Object.values(activeProject.results).map((r) => r.ranAt);
   const latestRun = ranAt.length ? new Date(Math.max(...ranAt)) : null;

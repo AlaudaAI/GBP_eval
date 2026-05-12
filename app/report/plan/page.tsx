@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWorkspace } from "@/components/WorkspaceProvider";
+import { WorkspaceFallback } from "@/components/WorkspaceFallback";
 import type { ActionPlan, PlanPriority } from "@/lib/plan";
 
 const priorityClass: Record<PlanPriority, string> = {
@@ -56,7 +57,7 @@ export default function PlanReportPage() {
   }, [print, plan, loading]);
 
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
-  if (!activeProject) return <p className="text-sm text-slate-500">No project.</p>;
+  if (!activeProject) return <WorkspaceFallback />;
   if (error) return <p className="text-sm text-red-700">Plan failed: {error}</p>;
   if (!plan) return <p className="text-sm text-slate-500">Generating action plan…</p>;
 

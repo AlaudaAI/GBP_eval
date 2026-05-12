@@ -15,9 +15,13 @@ import { emptySettings, type Settings } from "@/lib/settings";
 
 const TOKEN_KEY = "alauda.bearerToken";
 
+export type WorkspaceError = { status: number | null; message: string };
+
 type Ctx = {
   state: WorkspaceState | null;
   loading: boolean;
+  error: WorkspaceError | null;
+  reload: () => void;
   token: string | null;
   setToken: (t: string) => void;
   signOut: () => void;
@@ -43,8 +47,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [token, setTokenState] = useState<string | null>(null);
   const [state, setState] = useState<WorkspaceState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<WorkspaceError | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const pendingWrite = useRef<WorkspaceState | null>(null);
   const writeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const reload = useCallback(() => setReloadNonce((n) => n + 1), []);
 
   useEffect(() => {
     const t = typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
@@ -61,12 +69,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.removeItem(TOKEN_KEY);
     setTokenState(null);
     setState(null);
+    setError(null);
   }, []);
 
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
     setLoading(true);
+    setError(null);
     (async () => {
       try {
         const resp = await fetch("/api/workspace", {
@@ -76,11 +86,30 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           if (!cancelled) signOut();
           return;
         }
-        if (!resp.ok) throw new Error(`Workspace fetch failed: ${resp.status}`);
+        if (!resp.ok) {
+          let msg = `Workspace fetch failed (HTTP ${resp.status})`;
+          try {
+            const body = (await resp.json()) as { error?: string };
+            if (body?.error) msg = body.error;
+          } catch {
+            // Non-JSON body — keep the generic message.
+          }
+          throw Object.assign(new Error(msg), { status: resp.status });
+        }
         const data = (await resp.json()) as WorkspaceState;
-        if (!cancelled) setState(data);
-      } catch {
-        if (!cancelled) setState(null);
+        if (!cancelled) {
+          setState(data);
+          setError(null);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        const message = e instanceof Error ? e.message : String(e);
+        const status =
+          e && typeof e === "object" && "status" in e && typeof (e as { status?: number }).status === "number"
+            ? (e as { status: number }).status
+            : null;
+        setError({ status, message });
+        setState(null);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -88,7 +117,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [token, signOut]);
+  }, [token, signOut, reloadNonce]);
 
   const persist = useCallback(
     (next: WorkspaceState) => {
@@ -200,6 +229,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const value: Ctx = {
     state,
     loading,
+    error,
+    reload,
     token,
     setToken,
     signOut,
