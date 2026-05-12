@@ -7,6 +7,11 @@ const QA_URL = "https://api.outscraper.com/maps/questions-and-answers";
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
+// Hard cap per Outscraper call. async=false can wedge for 30-45 s when the
+// Place ID isn't cached and they try to live-scrape it; we'd rather fail
+// fast and let gbp-source.ts fall back to Places.
+const OUTSCRAPER_TIMEOUT_MS = 12_000;
+
 // Thrown when Outscraper returns HTTP 200 with no profile data — typically a
 // Place ID that isn't in their cache. Callers can catch this to fall back to
 // a different data source rather than failing the whole audit.
@@ -28,11 +33,27 @@ export async function fetchGbp(
 
   const headers = { "X-API-KEY": apiKey };
 
-  const [profileRaw, reviewsRaw, qaRaw] = await Promise.all([
-    fetchJSON(
+  let profileRaw: unknown;
+  try {
+    profileRaw = await fetchJSON(
       `${SEARCH_URL}?query=${encodeURIComponent("place_id:" + placeId)}&limit=1&async=false&language=en`,
       headers,
-    ),
+    );
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new OutscraperNoProfileError(placeId);
+    }
+    throw e;
+  }
+
+  const profile = pickFirst(profileRaw);
+  if (!profile) {
+    throw new OutscraperNoProfileError(placeId);
+  }
+
+  // Now that we know the Place is in Outscraper's cache, fetch the supporting
+  // data in parallel. These are nice-to-haves; swallow individual failures.
+  const [reviewsRaw, qaRaw] = await Promise.all([
     fetchJSON(
       `${REVIEWS_URL}?query=${encodeURIComponent("place_id:" + placeId)}&reviewsLimit=50&async=false&cutoff=${Math.floor((Date.now() - ONE_YEAR_MS) / 1000)}`,
       headers,
@@ -42,11 +63,6 @@ export async function fetchGbp(
       headers,
     ).catch(() => null),
   ]);
-
-  const profile = pickFirst(profileRaw);
-  if (!profile) {
-    throw new OutscraperNoProfileError(placeId);
-  }
   const reviewsArr = pickList(reviewsRaw);
   const qaArr = pickList(qaRaw);
 
@@ -102,11 +118,19 @@ export async function fetchGbp(
 }
 
 async function fetchJSON(url: string, headers: Record<string, string>) {
-  const resp = await fetch(url, { headers });
-  if (!resp.ok) {
-    throw new Error(`Outscraper ${resp.status}: ${await resp.text().catch(() => "")}`);
+  const controller = new AbortController();
+  const handle = setTimeout(() => controller.abort(), OUTSCRAPER_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, { headers, signal: controller.signal });
+    if (!resp.ok) {
+      throw new Error(
+        `Outscraper ${resp.status}: ${await resp.text().catch(() => "")}`,
+      );
+    }
+    return await resp.json();
+  } finally {
+    clearTimeout(handle);
   }
-  return resp.json();
 }
 
 // Outscraper wraps results in { data: [[{...}]] } typically. Be permissive.
