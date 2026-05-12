@@ -1,0 +1,462 @@
+import type { CheckResult, EvalResult } from "./eval-types";
+import { scoreFromChecks } from "./eval-types";
+import type { GbpData } from "./gbp-types";
+import { loadGbp } from "./gbp-source";
+import { enhanceRecommendations } from "./llm";
+import { findFeature, type Feature } from "./features";
+import { deriveAreaCode, type Settings } from "./settings";
+
+const SKIPPED = "skipped: data source limited";
+const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+const NINETY_DAYS = 90 * 24 * 60 * 60 * 1000;
+
+export type AuditInputs = {
+  placeId: string;
+};
+
+export async function runAudit(
+  slug: string,
+  inputs: AuditInputs,
+  settings: Settings,
+): Promise<EvalResult> {
+  const feature = findFeature(slug);
+  if (!feature) throw new Error(`Unknown audit: ${slug}`);
+  if (!inputs.placeId) throw new Error("Missing Place ID.");
+
+  const data = await loadGbp({
+    placeId: inputs.placeId,
+    outscraperApiKey: settings.outscraperApiKey,
+  });
+
+  switch (slug) {
+    case "core-listing":
+      return finalize(feature, await auditCoreListing(data, settings));
+    case "categories":
+      return finalize(feature, await auditCategories(data, settings));
+    case "profile-completeness":
+      return finalize(feature, await auditProfileCompleteness(data));
+    case "media":
+      return finalize(feature, await auditMedia(data));
+    case "engagement":
+      return finalize(feature, await auditEngagement(data));
+    default:
+      throw new Error(`Unimplemented audit: ${slug}`);
+  }
+}
+
+async function finalize(
+  feature: Feature,
+  build: {
+    checks: CheckResult[];
+    summary: string;
+    fallbackRecs: string[];
+    meta?: Record<string, unknown>;
+  },
+): Promise<EvalResult> {
+  // Skipped checks (data source limited) don't count toward the score.
+  const scored = build.checks.filter((c) => c.detail !== SKIPPED);
+  const { score, status } = scoreFromChecks(scored);
+  const recommendations = await enhanceRecommendations({
+    feature,
+    checks: build.checks,
+    fallback: build.fallbackRecs,
+  });
+  return {
+    score,
+    status,
+    summary: build.summary,
+    checks: build.checks,
+    recommendations,
+    meta: build.meta,
+  };
+}
+
+// ---------- core-listing ----------
+
+async function auditCoreListing(data: GbpData, settings: Settings) {
+  const checks: CheckResult[] = [];
+  const fallbackRecs: string[] = [];
+
+  // Address present and looks like a real street address.
+  if (!data.address) {
+    checks.push({ name: "Address present", passed: false, detail: "No address found on the listing." });
+    fallbackRecs.push("Add a street address to your profile so customers can find you.");
+  } else if (data.isPoBox) {
+    checks.push({ name: "Address is a real street address", passed: false, detail: "Listing uses a PO Box — Google guidelines require a staffed street address." });
+    fallbackRecs.push("Replace the PO Box with a real street address where customers can visit or where staff work.");
+  } else {
+    checks.push({ name: "Address is a real street address", passed: true, detail: `Address: ${data.address}.` });
+  }
+
+  // Phone present and local area code.
+  const expectedAreaCode = settings.localAreaCode || deriveAreaCode(settings.phone);
+  if (!data.phone) {
+    checks.push({ name: "Phone present", passed: false, detail: "No phone number on the listing." });
+    fallbackRecs.push("Add a phone number so customers can call you directly from search results.");
+  } else if (expectedAreaCode) {
+    const phoneArea = deriveAreaCode(data.phone);
+    const ok = phoneArea === expectedAreaCode;
+    checks.push({
+      name: "Phone uses local area code",
+      passed: ok,
+      detail: ok
+        ? `Area code ${phoneArea} matches the local area code.`
+        : `Phone area code ${phoneArea || "unknown"} does not match local area code ${expectedAreaCode}.`,
+    });
+    if (!ok) fallbackRecs.push(`Use a local ${expectedAreaCode} phone number on your profile.`);
+  } else {
+    checks.push({
+      name: "Phone uses local area code",
+      passed: true,
+      detail: `Phone present (${data.phone}). Local area code not configured for comparison.`,
+    });
+  }
+
+  // Website matches settings.domain.
+  const expectedDomain = settings.domain ? normalizeDomain(settings.domain) : "";
+  if (!data.website) {
+    checks.push({ name: "Website URL present", passed: false, detail: "No website URL on the listing." });
+    fallbackRecs.push("Add your website to the profile so visitors can learn more about your services.");
+  } else if (expectedDomain) {
+    const ok = normalizeDomain(data.website) === expectedDomain;
+    checks.push({
+      name: "Website matches your domain",
+      passed: ok,
+      detail: ok
+        ? `Website ${normalizeDomain(data.website)} matches the configured domain.`
+        : `Website on listing is ${normalizeDomain(data.website)}; expected ${expectedDomain}.`,
+    });
+    if (!ok) fallbackRecs.push(`Point the profile's website field at ${expectedDomain}.`);
+  } else {
+    checks.push({ name: "Website URL present", passed: true, detail: `Website: ${data.website}.` });
+  }
+
+  // Business status.
+  const statusOk = !data.businessStatus || data.businessStatus === "OPERATIONAL";
+  checks.push({
+    name: "Business status is OPERATIONAL",
+    passed: statusOk,
+    detail: statusOk
+      ? "Listing is marked operational."
+      : `Listing is marked ${data.businessStatus}. Customers will see this on search.`,
+  });
+  if (!statusOk) fallbackRecs.push("Update business status to OPERATIONAL — closed or relocated listings hide you from results.");
+
+  // Duplicate listings.
+  if (typeof data.duplicateCandidates === "number") {
+    const ok = data.duplicateCandidates === 0;
+    checks.push({
+      name: "No duplicate listings detected",
+      passed: ok,
+      detail: ok
+        ? "No other listings found sharing this business name and city."
+        : `${data.duplicateCandidates} possible duplicate listing(s) found.`,
+    });
+    if (!ok) fallbackRecs.push("Search Google Maps for duplicate listings of your business and request they be merged or removed.");
+  } else {
+    checks.push({ name: "No duplicate listings detected", passed: false, detail: SKIPPED });
+  }
+
+  const failed = checks.filter((c) => !c.passed && c.detail !== SKIPPED).length;
+  const summary = failed === 0
+    ? "Core listing fundamentals look correct."
+    : `${failed} core listing issue${failed === 1 ? "" : "s"} to fix.`;
+
+  return { checks, summary, fallbackRecs };
+}
+
+// ---------- categories ----------
+
+async function auditCategories(data: GbpData, settings: Settings) {
+  const checks: CheckResult[] = [];
+  const fallbackRecs: string[] = [];
+
+  if (!data.primaryCategory) {
+    checks.push({ name: "Primary category set", passed: false, detail: "No primary category found." });
+    fallbackRecs.push("Pick a primary category that matches your most important service.");
+  } else {
+    const services = (settings.services || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const cat = data.primaryCategory.toLowerCase();
+    const matchesService = services.length === 0 || services.some((s) => cat.includes(s) || s.includes(cat));
+    checks.push({
+      name: "Primary category matches your services",
+      passed: matchesService,
+      detail: matchesService
+        ? `Primary category: ${data.primaryCategory}.`
+        : `Primary category "${data.primaryCategory}" does not appear in your services list.`,
+    });
+    if (!matchesService) fallbackRecs.push(`Change your primary category to align with: ${services.slice(0, 3).join(", ")}.`);
+  }
+
+  if (data.secondaryCategories === undefined) {
+    checks.push({ name: "At least 3 secondary categories", passed: false, detail: SKIPPED });
+    checks.push({ name: "At most 9 secondary categories", passed: false, detail: SKIPPED });
+    checks.push({ name: "No vague top-level categories", passed: false, detail: SKIPPED });
+  } else {
+    const count = data.secondaryCategories.length;
+    checks.push({
+      name: "At least 3 secondary categories",
+      passed: count >= 3,
+      detail: count >= 3 ? `${count} secondary categories set.` : `Only ${count} secondary categories — Google allows up to 9.`,
+    });
+    if (count < 3) fallbackRecs.push("Add more secondary categories — aim for one per distinct service you offer.");
+
+    checks.push({
+      name: "At most 9 secondary categories",
+      passed: count <= 9,
+      detail: count <= 9 ? `${count} categories is within Google's limit of 9.` : `${count} categories — Google only counts the first 9.`,
+    });
+    if (count > 9) fallbackRecs.push("Trim secondary categories to your 9 most important services.");
+
+    const vague = data.secondaryCategories.filter((c) => /^(service|establishment|point of interest|business)$/i.test(c.trim()));
+    checks.push({
+      name: "No vague top-level categories",
+      passed: vague.length === 0,
+      detail: vague.length === 0 ? "All categories are specific." : `Vague terms used: ${vague.join(", ")}.`,
+    });
+    if (vague.length > 0) fallbackRecs.push("Replace generic categories like \"Service\" with specific service types.");
+  }
+
+  const failed = checks.filter((c) => !c.passed && c.detail !== SKIPPED).length;
+  const summary = failed === 0
+    ? "Categorization looks healthy."
+    : `${failed} category issue${failed === 1 ? "" : "s"} to address.`;
+  return { checks, summary, fallbackRecs };
+}
+
+// ---------- profile-completeness ----------
+
+async function auditProfileCompleteness(data: GbpData) {
+  const checks: CheckResult[] = [];
+  const fallbackRecs: string[] = [];
+
+  if (data.description === undefined) {
+    checks.push({ name: "Description ≥ 200 chars", passed: false, detail: SKIPPED });
+  } else {
+    const ok = data.description.length >= 200;
+    checks.push({
+      name: "Description ≥ 200 chars",
+      passed: ok,
+      detail: ok ? `Description is ${data.description.length} chars.` : `Description is only ${data.description.length} chars (need 200+).`,
+    });
+    if (!ok) fallbackRecs.push("Expand your profile description to at least 200 characters, focusing on what you do and for whom.");
+  }
+
+  if (data.hoursSet === undefined) {
+    checks.push({ name: "Regular hours set", passed: false, detail: SKIPPED });
+  } else {
+    checks.push({
+      name: "Regular hours set",
+      passed: data.hoursSet,
+      detail: data.hoursSet ? "Regular hours configured." : "No regular hours set.",
+    });
+    if (!data.hoursSet) fallbackRecs.push("Set your regular operating hours for every day you're open.");
+  }
+
+  if (data.holidayHoursSet === undefined) {
+    checks.push({ name: "Holiday hours set for next 3 months", passed: false, detail: SKIPPED });
+  } else {
+    checks.push({
+      name: "Holiday hours set for next 3 months",
+      passed: data.holidayHoursSet,
+      detail: data.holidayHoursSet ? "Holiday hours are set." : "No upcoming holiday hours found in the next 90 days.",
+    });
+    if (!data.holidayHoursSet) fallbackRecs.push("Add holiday hours for any upcoming closures so customers don't show up to a locked door.");
+  }
+
+  if (data.hasProducts === undefined) {
+    checks.push({ name: "Products listed (if applicable)", passed: false, detail: SKIPPED });
+  } else {
+    // Products are optional for many businesses; pass if present, otherwise warn (not fail) — pass detail.
+    checks.push({
+      name: "Products listed (if applicable)",
+      passed: data.hasProducts === true || true, // soft-pass: we don't penalize service businesses
+      detail: data.hasProducts ? "Products section populated." : "No products listed (skip if you're a service business).",
+    });
+  }
+
+  if (data.hasServices === undefined) {
+    checks.push({ name: "Services listed", passed: false, detail: SKIPPED });
+  } else {
+    checks.push({
+      name: "Services listed",
+      passed: Boolean(data.hasServices),
+      detail: data.hasServices ? "Services section populated." : "No services listed.",
+    });
+    if (!data.hasServices) fallbackRecs.push("Add every service you offer to the Services section.");
+  }
+
+  if (data.attributes === undefined) {
+    checks.push({ name: "At least one attribute set", passed: false, detail: SKIPPED });
+  } else {
+    const ok = data.attributes.length > 0;
+    checks.push({
+      name: "At least one attribute set",
+      passed: ok,
+      detail: ok ? `${data.attributes.length} attribute(s) set.` : "No attributes selected.",
+    });
+    if (!ok) fallbackRecs.push("Pick at least one attribute (wheelchair accessible, free Wi-Fi, by appointment, etc.).");
+  }
+
+  const failed = checks.filter((c) => !c.passed && c.detail !== SKIPPED).length;
+  const summary = failed === 0 ? "Profile sections are well filled in." : `${failed} profile section${failed === 1 ? "" : "s"} need filling in.`;
+  return { checks, summary, fallbackRecs };
+}
+
+// ---------- media ----------
+
+async function auditMedia(data: GbpData) {
+  const checks: CheckResult[] = [];
+  const fallbackRecs: string[] = [];
+
+  if (data.logoPresent === undefined) {
+    checks.push({ name: "Logo photo present", passed: false, detail: SKIPPED });
+  } else {
+    checks.push({
+      name: "Logo photo present",
+      passed: data.logoPresent,
+      detail: data.logoPresent ? "Logo is on the profile." : "No logo photo found.",
+    });
+    if (!data.logoPresent) fallbackRecs.push("Upload a clean square logo so customers recognize your brand on search.");
+  }
+
+  if (data.coverPresent === undefined) {
+    checks.push({ name: "Cover photo present", passed: false, detail: SKIPPED });
+  } else {
+    checks.push({
+      name: "Cover photo present",
+      passed: data.coverPresent,
+      detail: data.coverPresent ? "Cover photo is on the profile." : "No cover photo found.",
+    });
+    if (!data.coverPresent) fallbackRecs.push("Upload a wide cover photo showing your location, team, or signature work.");
+  }
+
+  const photos = data.photos ?? [];
+  const photoCountKnown = data.photos !== undefined;
+  if (!photoCountKnown) {
+    checks.push({ name: "At least 10 photos total", passed: false, detail: SKIPPED });
+  } else {
+    const ok = photos.length >= 10;
+    checks.push({
+      name: "At least 10 photos total",
+      passed: ok,
+      detail: ok ? `${photos.length} photos on the profile.` : `Only ${photos.length} photos (target: 10+).`,
+    });
+    if (!ok) fallbackRecs.push("Add more photos — aim for at least 10 covering interior, exterior, team, and work samples.");
+  }
+
+  if (data.videoCount === undefined) {
+    checks.push({ name: "At least 1 video", passed: false, detail: SKIPPED });
+  } else {
+    // Soft check: pass if missing (warn-not-fail semantics) by always passing, but surface the count.
+    const hasVideo = data.videoCount >= 1;
+    checks.push({
+      name: "At least 1 video",
+      passed: true, // warn-not-fail per brief
+      detail: hasVideo ? `${data.videoCount} video(s) uploaded.` : "No videos uploaded (recommended, not required).",
+    });
+    if (!hasVideo) fallbackRecs.push("Upload a short video (≤30 seconds) to stand out in search results.");
+  }
+
+  if (!photoCountKnown) {
+    checks.push({ name: "3+ owner photos in last 90 days", passed: false, detail: SKIPPED });
+  } else {
+    const cutoff = Date.now() - NINETY_DAYS;
+    const recentOwner = photos.filter((p) => p.uploadedByOwner === true && (p.uploadedAt ?? 0) >= cutoff).length;
+    const ok = recentOwner >= 3;
+    checks.push({
+      name: "3+ owner photos in last 90 days",
+      passed: ok,
+      detail: ok ? `${recentOwner} owner-uploaded photos in the last 90 days.` : `${recentOwner} owner-uploaded photos in the last 90 days (target: 3).`,
+    });
+    if (!ok) fallbackRecs.push("Upload at least 3 fresh photos every 90 days to signal your business is active.");
+  }
+
+  const failed = checks.filter((c) => !c.passed && c.detail !== SKIPPED).length;
+  const summary = failed === 0 ? "Media coverage is in good shape." : `${failed} media issue${failed === 1 ? "" : "s"} to fix.`;
+  return { checks, summary, fallbackRecs };
+}
+
+// ---------- engagement ----------
+
+async function auditEngagement(data: GbpData) {
+  const checks: CheckResult[] = [];
+  const fallbackRecs: string[] = [];
+
+  const now = Date.now();
+  if (data.posts === undefined) {
+    checks.push({ name: "Post in last 30 days", passed: false, detail: SKIPPED });
+    checks.push({ name: "Post in last 7 days", passed: false, detail: SKIPPED });
+  } else {
+    const last30 = data.posts.filter((p) => p.publishedAt >= now - THIRTY_DAYS).length;
+    const last7 = data.posts.filter((p) => p.publishedAt >= now - SEVEN_DAYS).length;
+    checks.push({
+      name: "Post in last 30 days",
+      passed: last30 >= 1,
+      detail: last30 >= 1 ? `${last30} post(s) in the last 30 days.` : "No Google Posts in the last 30 days.",
+    });
+    if (last30 < 1) fallbackRecs.push("Publish a Google Post at least once a month — sales, events, or behind-the-scenes work all count.");
+
+    // Warn (not fail) per spec: always passes, surfaces count.
+    checks.push({
+      name: "Post in last 7 days",
+      passed: true,
+      detail: last7 >= 1 ? `${last7} post(s) in the last 7 days.` : "No Google Posts in the last 7 days (weekly cadence recommended).",
+    });
+    if (last7 < 1) fallbackRecs.push("Aim for a weekly post — listings with weekly posts get more clicks.");
+  }
+
+  if (data.questions === undefined) {
+    checks.push({ name: "Every Q&A has an owner response", passed: false, detail: SKIPPED });
+  } else if (data.questions.length === 0) {
+    checks.push({ name: "Every Q&A has an owner response", passed: true, detail: "No Q&A questions on the listing." });
+  } else {
+    const unanswered = data.questions.filter((q) => !q.ownerAnswered);
+    const ok = unanswered.length === 0;
+    checks.push({
+      name: "Every Q&A has an owner response",
+      passed: ok,
+      detail: ok ? `${data.questions.length} question(s), all answered by the owner.` : `${unanswered.length} of ${data.questions.length} question(s) have no owner response.`,
+    });
+    if (!ok) fallbackRecs.push("Answer every Q&A question from the owner account — leaving customers' questions hanging looks unresponsive.");
+  }
+
+  if (data.reviews === undefined) {
+    checks.push({ name: "Review-response rate ≥ 50% (last 30 days)", passed: false, detail: SKIPPED });
+  } else {
+    const recent = data.reviews.filter((r) => r.publishedAt >= now - THIRTY_DAYS);
+    if (recent.length === 0) {
+      checks.push({
+        name: "Review-response rate ≥ 50% (last 30 days)",
+        passed: true,
+        detail: "No new reviews in the last 30 days.",
+      });
+    } else {
+      const responded = recent.filter((r) => r.ownerResponse).length;
+      const rate = responded / recent.length;
+      const ok = rate >= 0.5;
+      checks.push({
+        name: "Review-response rate ≥ 50% (last 30 days)",
+        passed: ok,
+        detail: `Responded to ${responded} of ${recent.length} recent review(s) (${Math.round(rate * 100)}%).`,
+      });
+      if (!ok) fallbackRecs.push("Reply to at least half of new reviews within a week — show customers you're paying attention.");
+    }
+  }
+
+  const failed = checks.filter((c) => !c.passed && c.detail !== SKIPPED).length;
+  const summary = failed === 0 ? "Engagement signals are healthy." : `${failed} engagement issue${failed === 1 ? "" : "s"} to fix.`;
+  return { checks, summary, fallbackRecs };
+}
+
+// ---------- helpers ----------
+
+function normalizeDomain(input: string): string {
+  let s = input.trim().toLowerCase();
+  s = s.replace(/^https?:\/\//, "");
+  s = s.replace(/^www\./, "");
+  s = s.split("/")[0];
+  s = s.split("?")[0];
+  return s;
+}
