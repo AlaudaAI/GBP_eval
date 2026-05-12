@@ -22,7 +22,6 @@ const AUTOFILLED_KEYS: (keyof Settings)[] = [
 ];
 
 const CONTEXT_KEYS: (keyof Settings)[] = ["cities", "services"];
-const ADVANCED_KEYS: (keyof Settings)[] = ["localAreaCode", "outscraperApiKey"];
 
 function extractDomain(url: string): string {
   try {
@@ -37,7 +36,6 @@ export default function SettingsPage() {
   const [form, setForm] = useState<Settings>(emptySettings());
   const [saved, setSaved] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     if (activeProject) {
@@ -107,8 +105,7 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-semibold text-slate-900">Project settings</h1>
         <p className="text-sm text-slate-600 mt-1">
           Pick your business below — Google Places fills the listing details
-          automatically. Only service area and advanced overrides need manual
-          input.
+          automatically. Only the service area needs manual input.
         </p>
       </header>
 
@@ -184,24 +181,6 @@ export default function SettingsPage() {
             </p>
           </div>
           {CONTEXT_KEYS.map(renderField)}
-        </section>
-
-        <section className="rounded-2xl border border-slate-200 bg-white p-5">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((s) => !s)}
-            className="flex w-full items-center justify-between text-sm font-semibold text-slate-900"
-          >
-            <span>Advanced</span>
-            <span className="text-xs font-normal text-slate-500">
-              {showAdvanced ? "Hide" : "Show"}
-            </span>
-          </button>
-          {showAdvanced && (
-            <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">
-              {ADVANCED_KEYS.map(renderField)}
-            </div>
-          )}
         </section>
 
         <div className="flex items-center gap-3">
