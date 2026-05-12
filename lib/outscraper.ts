@@ -7,6 +7,18 @@ const QA_URL = "https://api.outscraper.com/maps/questions-and-answers";
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
+// Thrown when Outscraper returns HTTP 200 with no profile data — typically a
+// Place ID that isn't in their cache. Callers can catch this to fall back to
+// a different data source rather than failing the whole audit.
+export class OutscraperNoProfileError extends Error {
+  readonly placeId: string;
+  constructor(placeId: string) {
+    super("Outscraper returned no profile for the given Place ID.");
+    this.name = "OutscraperNoProfileError";
+    this.placeId = placeId;
+  }
+}
+
 export async function fetchGbp(
   placeId: string,
   opts?: { apiKey?: string },
@@ -33,7 +45,7 @@ export async function fetchGbp(
 
   const profile = pickFirst(profileRaw);
   if (!profile) {
-    throw new Error("Outscraper returned no profile for the given Place ID.");
+    throw new OutscraperNoProfileError(placeId);
   }
   const reviewsArr = pickList(reviewsRaw);
   const qaArr = pickList(qaRaw);
