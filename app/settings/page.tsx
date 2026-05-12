@@ -7,21 +7,22 @@ import { BusinessSearch } from "@/components/BusinessSearch";
 import type { BusinessCandidate } from "@/lib/places-search";
 import {
   emptySettings,
-  REQUIRED_SETTINGS,
   SETTING_HELP,
   SETTING_LABELS,
-  SETTING_ORDER,
   type Settings,
 } from "@/lib/settings";
 
-const AUTOFILLED_KEYS = new Set<keyof Settings>([
+const AUTOFILLED_KEYS: (keyof Settings)[] = [
   "businessName",
   "gbpName",
   "googlePlaceId",
   "address",
   "phone",
   "domain",
-]);
+];
+
+const CONTEXT_KEYS: (keyof Settings)[] = ["cities", "services"];
+const ADVANCED_KEYS: (keyof Settings)[] = ["localAreaCode", "outscraperApiKey"];
 
 function extractDomain(url: string): string {
   try {
@@ -35,12 +36,13 @@ export default function SettingsPage() {
   const { activeProject, updateSettings, renameProject, loading } = useWorkspace();
   const [form, setForm] = useState<Settings>(emptySettings());
   const [saved, setSaved] = useState(false);
-  const [autofilled, setAutofilled] = useState<Set<keyof Settings>>(new Set());
+  const [showDetails, setShowDetails] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     if (activeProject) {
       setForm(activeProject.settings);
-      setAutofilled(new Set());
+      setShowDetails(false);
     }
   }, [activeProject?.id, activeProject?.settings]);
 
@@ -54,11 +56,11 @@ export default function SettingsPage() {
       gbpName: c.name,
       googlePlaceId: c.placeId,
       address: c.address,
-      phone: c.phone ?? form.phone,
-      domain: c.website ? extractDomain(c.website) : form.domain,
+      phone: c.phone ?? "",
+      domain: c.website ? extractDomain(c.website) : "",
     };
     setForm(next);
-    setAutofilled(new Set(AUTOFILLED_KEYS));
+    setShowDetails(false);
     if (activeProject && c.name && activeProject.name !== c.name) {
       renameProject(activeProject.id, c.name);
     }
@@ -66,21 +68,47 @@ export default function SettingsPage() {
 
   function setField(key: keyof Settings, value: string) {
     setForm({ ...form, [key]: value });
-    if (autofilled.has(key)) {
-      const nextAutofilled = new Set(autofilled);
-      nextAutofilled.delete(key);
-      setAutofilled(nextAutofilled);
-    }
   }
+
+  function renderField(key: keyof Settings) {
+    const isLong = key === "address" || key === "services" || key === "cities";
+    return (
+      <div key={key}>
+        <label className="block text-xs font-medium text-slate-700 mb-1">
+          {SETTING_LABELS[key]}
+        </label>
+        {isLong ? (
+          <textarea
+            rows={2}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-light"
+            value={form[key]}
+            onChange={(e) => setField(key, e.target.value)}
+          />
+        ) : (
+          <input
+            type={key === "outscraperApiKey" ? "password" : "text"}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-light"
+            value={form[key]}
+            onChange={(e) => setField(key, e.target.value)}
+          />
+        )}
+        {SETTING_HELP[key] && (
+          <p className="mt-1 text-xs text-slate-500">{SETTING_HELP[key]}</p>
+        )}
+      </div>
+    );
+  }
+
+  const hasBusiness = Boolean(form.googlePlaceId);
 
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Project settings</h1>
         <p className="text-sm text-slate-600 mt-1">
-          Search for your business below to auto-fill the fields. All values are
-          still editable. Required fields are marked with{" "}
-          <span className="text-red-600">*</span>.
+          Pick your business below — Google Places fills the listing details
+          automatically. Only service area and advanced overrides need manual
+          input.
         </p>
       </header>
 
@@ -89,7 +117,7 @@ export default function SettingsPage() {
       </section>
 
       <form
-        className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4"
+        className="space-y-6"
         onSubmit={(e) => {
           e.preventDefault();
           updateSettings(activeProject.id, form);
@@ -97,42 +125,84 @@ export default function SettingsPage() {
           setTimeout(() => setSaved(false), 1500);
         }}
       >
-        {SETTING_ORDER.map((key) => {
-          const required = REQUIRED_SETTINGS.includes(key);
-          const isLong = key === "address" || key === "services" || key === "cities";
-          const isAutofilled = autofilled.has(key);
-          return (
-            <div key={key}>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
-                {SETTING_LABELS[key]}
-                {required && <span className="text-red-600 ml-1">*</span>}
-                {isAutofilled && (
-                  <span className="ml-2 inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">
-                    from Places
-                  </span>
+        {hasBusiness && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Selected business
+                </p>
+                <p className="text-base font-semibold text-slate-900">
+                  {form.businessName || form.gbpName || "(unnamed)"}
+                </p>
+                {form.address && (
+                  <p className="text-sm text-slate-600">{form.address}</p>
                 )}
-              </label>
-              {isLong ? (
-                <textarea
-                  rows={2}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-light"
-                  value={form[key]}
-                  onChange={(e) => setField(key, e.target.value)}
-                />
-              ) : (
-                <input
-                  type={key === "outscraperApiKey" ? "password" : "text"}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-light"
-                  value={form[key]}
-                  onChange={(e) => setField(key, e.target.value)}
-                />
-              )}
-              {SETTING_HELP[key] && (
-                <p className="mt-1 text-xs text-slate-500">{SETTING_HELP[key]}</p>
-              )}
+                <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                  {form.phone && (
+                    <>
+                      <dt>Phone</dt>
+                      <dd>{form.phone}</dd>
+                    </>
+                  )}
+                  {form.domain && (
+                    <>
+                      <dt>Website</dt>
+                      <dd>{form.domain}</dd>
+                    </>
+                  )}
+                  <dt>Place ID</dt>
+                  <dd className="truncate font-mono">{form.googlePlaceId}</dd>
+                </dl>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDetails((s) => !s)}
+                className="shrink-0 text-xs text-slate-600 hover:text-slate-900"
+              >
+                {showDetails ? "Hide details" : "Edit details"}
+              </button>
             </div>
-          );
-        })}
+
+            {showDetails && (
+              <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">
+                <p className="text-xs text-slate-500">
+                  Override individual values if Google Places returned something
+                  incorrect. Re-running the search will overwrite these.
+                </p>
+                {AUTOFILLED_KEYS.map(renderField)}
+              </div>
+            )}
+          </section>
+        )}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Service area</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Used by audits to score local-relevance signals. Comma-separated.
+            </p>
+          </div>
+          {CONTEXT_KEYS.map(renderField)}
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((s) => !s)}
+            className="flex w-full items-center justify-between text-sm font-semibold text-slate-900"
+          >
+            <span>Advanced</span>
+            <span className="text-xs font-normal text-slate-500">
+              {showAdvanced ? "Hide" : "Show"}
+            </span>
+          </button>
+          {showAdvanced && (
+            <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">
+              {ADVANCED_KEYS.map(renderField)}
+            </div>
+          )}
+        </section>
 
         <div className="flex items-center gap-3">
           <button
