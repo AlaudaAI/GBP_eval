@@ -18,6 +18,23 @@ function maxResultsRanAt(results: Record<string, { ranAt: number }>): number {
   return values.length === 0 ? 0 : Math.max(...values.map((r) => r.ranAt));
 }
 
+function overallScore(
+  results: Record<string, { result: { score: number } }>,
+): { score: number; status: "pass" | "warn" | "fail"; label: string } | null {
+  const values = Object.values(results);
+  if (values.length === 0) return null;
+  const score = Math.round(values.reduce((s, r) => s + r.result.score, 0) / values.length);
+  const status = score >= 80 ? "pass" : score >= 50 ? "warn" : "fail";
+  const label = status === "pass" ? "on track" : status === "warn" ? "watch" : "needs work";
+  return { score, status, label };
+}
+
+const statusClass: Record<"pass" | "warn" | "fail", string> = {
+  pass: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  warn: "bg-amber-100 text-amber-800 border-amber-200",
+  fail: "bg-red-100 text-red-800 border-red-200",
+};
+
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -117,12 +134,21 @@ export default function PlanReportPage() {
   if (!plan) return <p className="text-sm text-slate-500">Generating action plan…</p>;
 
   const cached = activeProject.cachedPlan;
+  const overall = overallScore(activeProject.results);
 
   return (
     <article className="report mx-auto max-w-2xl bg-white p-8 space-y-6 print:p-0">
       <header className="report-section">
         <p className="text-xs text-slate-500">Alauda AI — action plan</p>
         <h1 className="text-3xl font-semibold text-slate-900 mt-1">{activeProject.name}</h1>
+        {overall && (
+          <div className="mt-3 flex items-center gap-3">
+            <span className="text-4xl font-semibold tabular-nums text-slate-900">{overall.score}</span>
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusClass[overall.status]}`}>
+              {overall.label}
+            </span>
+          </div>
+        )}
         <p className="text-sm text-slate-700 mt-3">{plan.diagnosis}</p>
         {cached && (
           <div className="mt-3 flex items-center gap-3 text-xs text-slate-500 print:hidden">
