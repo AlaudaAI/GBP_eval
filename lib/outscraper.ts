@@ -7,14 +7,8 @@ const QA_URL = "https://api.outscraper.com/maps/questions-and-answers";
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
-// Hard cap per Outscraper call. async=false can wedge for 30-45 s when the
-// Place ID isn't cached and they try to live-scrape it; we'd rather fail
-// fast and let gbp-source.ts fall back to Places.
 const OUTSCRAPER_TIMEOUT_MS = 12_000;
 
-// Thrown when Outscraper returns HTTP 200 with no profile data — typically a
-// Place ID that isn't in their cache. Callers can catch this to fall back to
-// a different data source rather than failing the whole audit.
 export class OutscraperNoProfileError extends Error {
   readonly placeId: string;
   constructor(placeId: string) {
@@ -36,7 +30,7 @@ export async function fetchGbp(
   let profileRaw: unknown;
   try {
     profileRaw = await fetchJSON(
-      `${SEARCH_URL}?query=${encodeURIComponent("place_id:" + placeId)}&limit=1&async=false&language=en`,
+      `${SEARCH_URL}?query=${encodeURIComponent(placeId)}&limit=1&async=false&language=en`,
       headers,
     );
   } catch (e) {
@@ -51,15 +45,13 @@ export async function fetchGbp(
     throw new OutscraperNoProfileError(placeId);
   }
 
-  // Now that we know the Place is in Outscraper's cache, fetch the supporting
-  // data in parallel. These are nice-to-haves; swallow individual failures.
   const [reviewsRaw, qaRaw] = await Promise.all([
     fetchJSON(
-      `${REVIEWS_URL}?query=${encodeURIComponent("place_id:" + placeId)}&reviewsLimit=50&async=false&cutoff=${Math.floor((Date.now() - ONE_YEAR_MS) / 1000)}`,
+      `${REVIEWS_URL}?query=${encodeURIComponent(placeId)}&reviewsLimit=50&async=false&cutoff=${Math.floor((Date.now() - ONE_YEAR_MS) / 1000)}`,
       headers,
     ).catch(() => null),
     fetchJSON(
-      `${QA_URL}?query=${encodeURIComponent("place_id:" + placeId)}&async=false&limit=20`,
+      `${QA_URL}?query=${encodeURIComponent(placeId)}&async=false&limit=20`,
       headers,
     ).catch(() => null),
   ]);
@@ -77,7 +69,7 @@ export async function fetchGbp(
     primaryCategory: str(profile.subtypes?.[0] ?? profile.type ?? profile.category),
     secondaryCategories: arr(profile.categories ?? profile.subtypes)
       .filter((c, i, all) => c && all.indexOf(c) === i)
-      .slice(1), // skip primary
+      .slice(1),
     description: str(profile.description),
     hoursSet:
       isPlainObject(profile.working_hours) &&
@@ -94,11 +86,10 @@ export async function fetchGbp(
     questions: parseQuestions(qaArr),
     reviews: parseReviews(reviewsArr),
     isPoBox: looksLikePoBox(profile.full_address ?? profile.address),
-    isVirtualOffice: false, // hard to detect from data; default false
-    duplicateCandidates: undefined, // separate request below if useful
+    isVirtualOffice: false,
+    duplicateCandidates: undefined,
   };
 
-  // Duplicate hint: search for the same name in the same city, ignoring this listing.
   if (data.name) {
     try {
       const sameNameRaw = await fetchJSON(
@@ -133,7 +124,6 @@ async function fetchJSON(url: string, headers: Record<string, string>) {
   }
 }
 
-// Outscraper wraps results in { data: [[{...}]] } typically. Be permissive.
 function pickFirst(raw: any): any {
   if (!raw) return null;
   if (Array.isArray(raw)) {
@@ -172,7 +162,6 @@ function looksLikePoBox(address: any): boolean {
 
 function extractCity(addr?: string): string {
   if (!addr) return "";
-  // Best-effort: "123 Main St, Springfield, IL 62701, USA" → "Springfield"
   const parts = addr.split(",").map((s) => s.trim());
   return parts.length >= 3 ? parts[parts.length - 3] : "";
 }
@@ -286,5 +275,4 @@ function parseReviews(raw: any[]): GbpReview[] {
     .filter((r): r is GbpReview => r !== null);
 }
 
-// Re-export for tests / debugging
 export const _internals = { NINETY_DAYS_MS };
