@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CachedAuditResult, Project, WorkspaceState } from "@/lib/workspace-types";
+import type { CachedAuditResult, CachedPlan, Project, WorkspaceState } from "@/lib/workspace-types";
 import { newProjectId } from "@/lib/workspace-types";
 import { emptySettings, type Settings } from "@/lib/settings";
 
@@ -32,6 +32,7 @@ type Ctx = {
   deleteProject: (id: string) => void;
   updateSettings: (id: string, settings: Settings) => void;
   saveResult: (id: string, cached: CachedAuditResult) => void;
+  savePlan: (id: string, plan: CachedPlan) => void;
   clearResults: (id: string) => void;
 };
 
@@ -217,11 +218,20 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     [mutate],
   );
 
+  const savePlan = useCallback(
+    (id: string, plan: CachedPlan) =>
+      mutate((s) => ({
+        ...s,
+        projects: s.projects.map((p) => (p.id === id ? { ...p, cachedPlan: plan } : p)),
+      })),
+    [mutate],
+  );
+
   const clearResults = useCallback(
     (id: string) =>
       mutate((s) => ({
         ...s,
-        projects: s.projects.map((p) => (p.id === id ? { ...p, results: {} } : p)),
+        projects: s.projects.map((p) => (p.id === id ? { ...p, results: {}, cachedPlan: undefined } : p)),
       })),
     [mutate],
   );
@@ -241,6 +251,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     deleteProject,
     updateSettings,
     saveResult,
+    savePlan,
     clearResults,
   };
 

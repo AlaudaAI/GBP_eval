@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWorkspace } from "@/components/WorkspaceProvider";
 import { WorkspaceFallback } from "@/components/WorkspaceFallback";
@@ -13,12 +13,24 @@ const priorityClass: Record<PlanPriority, string> = {
   P3: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
+function maxResultsRanAt(results: Record<string, { ranAt: number }>): number {
+  const values = Object.values(results);
+  return values.length === 0 ? 0 : Math.max(...values.map((r) => r.ranAt));
+}
+
 export default function PlanReportPage() {
-  const { activeProject, token, loading } = useWorkspace();
+  const { activeProject, token, loading, savePlan } = useWorkspace();
   const searchParams = useSearchParams();
   const print = searchParams.get("print") === "1";
+  const force = searchParams.get("force") === "1";
   const [plan, setPlan] = useState<ActionPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+
+  const latestRanAt = useMemo(
+    () => (activeProject ? maxResultsRanAt(activeProject.results) : 0),
+    [activeProject],
+  );
 
   useEffect(() => {
     document.body.setAttribute("data-report", "true");
@@ -29,7 +41,18 @@ export default function PlanReportPage() {
 
   useEffect(() => {
     if (!token || !activeProject) return;
+
+    // Use cached plan unless audits have been re-run since it was generated
+    // or the user passed ?force=1 to regenerate.
+    const cached = activeProject.cachedPlan;
+    if (cached && !force && cached.generatedFromRanAt >= latestRanAt) {
+      setPlan(cached.plan);
+      return;
+    }
+
     let cancelled = false;
+    setGenerating(true);
+    setError(null);
     (async () => {
       try {
         const resp = await fetch("/api/plan", {
@@ -39,15 +62,23 @@ export default function PlanReportPage() {
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const json = (await resp.json()) as { plan: ActionPlan };
-        if (!cancelled) setPlan(json.plan);
+        if (cancelled) return;
+        setPlan(json.plan);
+        savePlan(activeProject.id, {
+          plan: json.plan,
+          generatedAt: Date.now(),
+          generatedFromRanAt: latestRanAt,
+        });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setGenerating(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [token, activeProject]);
+  }, [token, activeProject, force, latestRanAt, savePlan]);
 
   useEffect(() => {
     if (!print) return;
@@ -61,12 +92,28 @@ export default function PlanReportPage() {
   if (error) return <p className="text-sm text-red-700">Plan failed: {error}</p>;
   if (!plan) return <p className="text-sm text-slate-500">Generating action plan…</p>;
 
+  const cached = activeProject.cachedPlan;
+
   return (
     <article className="report mx-auto max-w-2xl bg-white p-8 space-y-6 print:p-0">
       <header className="report-section">
         <p className="text-xs text-slate-500">Alauda AI — action plan</p>
         <h1 className="text-3xl font-semibold text-slate-900 mt-1">{activeProject.name}</h1>
         <p className="text-sm text-slate-700 mt-3">{plan.diagnosis}</p>
+        {cached && (
+          <div className="mt-3 flex items-center gap-3 text-xs text-slate-500 print:hidden">
+            <span>Generated {new Date(cached.generatedAt).toLocaleString()}.</span>
+            <a
+              href="?force=1"
+              className="text-brand hover:underline"
+              onClick={(e) => {
+                if (generating) e.preventDefault();
+              }}
+            >
+              {generating ? "Regenerating…" : "Regenerate plan"}
+            </a>
+          </div>
+        )}
       </header>
 
       <section className="report-section">
