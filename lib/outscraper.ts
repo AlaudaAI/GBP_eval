@@ -66,18 +66,22 @@ export async function fetchGbp(
     address: str(profile.full_address ?? profile.address),
     phone: str(profile.phone),
     website: str(profile.site ?? profile.website),
-    primaryCategory: str(profile.subtypes?.[0] ?? profile.type ?? profile.category),
-    secondaryCategories: arr(profile.categories ?? profile.subtypes)
-      .filter((c, i, all) => c && all.indexOf(c) === i)
-      .slice(1),
-    description: str(profile.description),
+    primaryCategory: str(profile.category ?? profile.type ?? firstCategory(profile.subtypes)),
+    secondaryCategories: dedupeKeepingNonPrimary(
+      flattenCategories(profile.categories ?? profile.subtypes),
+      profile.category ?? profile.type,
+    ),
+    // Always a string (empty when missing) so the audit reports "0 chars"
+    // rather than skipping the check — Outscraper exposes description when
+    // the business has set one.
+    description: pickDescription(profile),
     hoursSet:
       isPlainObject(profile.working_hours) &&
       Object.keys(profile.working_hours).length > 0,
     holidayHoursSet: hasUpcomingHolidayHours(profile),
     hasProducts: Boolean(profile.products?.length),
     hasServices: Boolean(profile.services?.length),
-    attributes: arr(profile.about ?? profile.attributes).map(String),
+    attributes: flattenAttributes(profile.about ?? profile.attributes),
     photos: parsePhotos(profile.photos ?? profile.photos_data),
     logoPresent: Boolean(profile.logo ?? hasPhotoOfType(profile.photos, "logo")),
     coverPresent: Boolean(profile.cover ?? hasPhotoOfType(profile.photos, "cover")),
@@ -131,9 +135,63 @@ function pickList(raw: any): any[] {
 function str(v: any): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
-function arr(v: any): string[] {
-  if (Array.isArray(v)) return v.filter((x) => typeof x === "string");
-  return [];
+
+// Outscraper's `subtypes` is usually a comma-separated string. `categories`
+// is occasionally an array. Normalize to a deduped string list.
+function flattenCategories(v: any): string[] {
+  let parts: string[] = [];
+  if (Array.isArray(v)) parts = v.filter((x): x is string => typeof x === "string");
+  else if (typeof v === "string") parts = v.split(",");
+  return parts.map((s) => s.trim()).filter(Boolean);
+}
+
+function pickDescription(profile: any): string {
+  const candidates = [
+    profile.description,
+    profile.about?.description,
+    profile.editorial_summary,
+    profile.summary,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string") return c;
+  }
+  return "";
+}
+
+function firstCategory(v: any): string | undefined {
+  const list = flattenCategories(v);
+  return list[0];
+}
+
+function dedupeKeepingNonPrimary(list: string[], primary: any): string[] {
+  const primaryNorm = typeof primary === "string" ? primary.trim().toLowerCase() : "";
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of list) {
+    const norm = c.toLowerCase();
+    if (norm === primaryNorm) continue;
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(c);
+  }
+  return out;
+}
+
+// Outscraper's `about` is a nested object like
+//   { "Accessibility": { "Wheelchair-accessible entrance": true, ... },
+//     "Service options": { "Online appointments": true, ... } }
+// Flatten to a flat list of human-readable attribute names that are enabled.
+function flattenAttributes(v: any): string[] {
+  if (Array.isArray(v)) return v.map(String);
+  if (!v || typeof v !== "object") return [];
+  const out: string[] = [];
+  for (const section of Object.values(v as Record<string, unknown>)) {
+    if (!section || typeof section !== "object") continue;
+    for (const [name, enabled] of Object.entries(section as Record<string, unknown>)) {
+      if (enabled === true) out.push(name);
+    }
+  }
+  return out;
 }
 function isPlainObject(v: any): v is Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v);

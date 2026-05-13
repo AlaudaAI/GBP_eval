@@ -229,8 +229,12 @@ async function auditCategories(data: GbpData, settings: Settings) {
     const vague = data.secondaryCategories.filter((c) => /^(service|establishment|point of interest|business)$/i.test(c.trim()));
     checks.push({
       name: "No vague top-level categories",
-      passed: vague.length === 0,
-      detail: vague.length === 0 ? "All categories are specific." : `Vague terms used: ${vague.join(", ")}.`,
+      passed: count > 0 && vague.length === 0,
+      detail: count === 0
+        ? "No secondary categories to evaluate."
+        : vague.length === 0
+          ? "All categories are specific."
+          : `Vague terms used: ${vague.join(", ")}.`,
     });
     if (vague.length > 0) fallbackRecs.push("Replace generic categories like \"Service\" with specific service types.");
   }
