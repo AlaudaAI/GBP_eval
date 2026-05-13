@@ -116,10 +116,11 @@ async function auditCoreListing(data: GbpData, settings: Settings) {
     });
     if (!ok) fallbackRecs.push(`Use a local ${expectedAreaCode} phone number on your profile.`);
   } else {
+    // Can't verify without a configured area code; don't credit a vacuous pass.
     checks.push({
       name: "Phone uses local area code",
-      passed: true,
-      detail: `Phone present (${data.phone}). Local area code not configured for comparison.`,
+      passed: false,
+      detail: SKIPPED,
     });
   }
 
@@ -141,15 +142,25 @@ async function auditCoreListing(data: GbpData, settings: Settings) {
     checks.push({ name: "Website URL present", passed: true, detail: `Website: ${data.website}.` });
   }
 
-  const statusOk = !data.businessStatus || data.businessStatus === "OPERATIONAL";
-  checks.push({
-    name: "Business status is OPERATIONAL",
-    passed: statusOk,
-    detail: statusOk
-      ? "Listing is marked operational."
-      : `Listing is marked ${data.businessStatus}. Customers will see this on search.`,
-  });
-  if (!statusOk) fallbackRecs.push("Update business status to OPERATIONAL — closed or relocated listings hide you from results.");
+  if (!data.businessStatus) {
+    // No status reported — don't credit a vacuous pass.
+    checks.push({
+      name: "Business status is OPERATIONAL",
+      passed: false,
+      detail: "Business status not reported on the listing.",
+    });
+    fallbackRecs.push("Set business status to OPERATIONAL so customers don't think you're closed.");
+  } else {
+    const statusOk = data.businessStatus === "OPERATIONAL";
+    checks.push({
+      name: "Business status is OPERATIONAL",
+      passed: statusOk,
+      detail: statusOk
+        ? "Listing is marked operational."
+        : `Listing is marked ${data.businessStatus}. Customers will see this on search.`,
+    });
+    if (!statusOk) fallbackRecs.push("Update business status to OPERATIONAL — closed or relocated listings hide you from results.");
+  }
 
   const failed = checks.filter((c) => !c.passed && c.detail !== SKIPPED).length;
   const summary = failed === 0
@@ -170,16 +181,25 @@ async function auditCategories(data: GbpData, settings: Settings) {
     fallbackRecs.push("Pick a primary category that matches your most important service.");
   } else {
     const services = (settings.services || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-    const cat = data.primaryCategory.toLowerCase();
-    const matchesService = services.length === 0 || services.some((s) => cat.includes(s) || s.includes(cat));
-    checks.push({
-      name: "Primary category matches your services",
-      passed: matchesService,
-      detail: matchesService
-        ? `Primary category: ${data.primaryCategory}.`
-        : `Primary category "${data.primaryCategory}" does not appear in your services list.`,
-    });
-    if (!matchesService) fallbackRecs.push(`Change your primary category to align with: ${services.slice(0, 3).join(", ")}.`);
+    if (services.length === 0) {
+      // Can't verify the match without a configured services list.
+      checks.push({
+        name: "Primary category matches your services",
+        passed: false,
+        detail: SKIPPED,
+      });
+    } else {
+      const cat = data.primaryCategory.toLowerCase();
+      const matchesService = services.some((s) => cat.includes(s) || s.includes(cat));
+      checks.push({
+        name: "Primary category matches your services",
+        passed: matchesService,
+        detail: matchesService
+          ? `Primary category: ${data.primaryCategory}.`
+          : `Primary category "${data.primaryCategory}" does not appear in your services list.`,
+      });
+      if (!matchesService) fallbackRecs.push(`Change your primary category to align with: ${services.slice(0, 3).join(", ")}.`);
+    }
   }
 
   if (data.secondaryCategories === undefined) {
@@ -197,8 +217,12 @@ async function auditCategories(data: GbpData, settings: Settings) {
 
     checks.push({
       name: "At most 9 secondary categories",
-      passed: count <= 9,
-      detail: count <= 9 ? `${count} categories is within Google's limit of 9.` : `${count} categories — Google only counts the first 9.`,
+      passed: count >= 1 && count <= 9,
+      detail: count === 0
+        ? "No secondary categories — Google allows up to 9."
+        : count <= 9
+          ? `${count} categories is within Google's limit of 9.`
+          : `${count} categories — Google only counts the first 9.`,
     });
     if (count > 9) fallbackRecs.push("Trim secondary categories to your 9 most important services.");
 
@@ -259,13 +283,15 @@ async function auditProfileCompleteness(data: GbpData) {
   }
 
   if (data.hasProducts === undefined) {
-    checks.push({ name: "Products listed (if applicable)", passed: false, detail: SKIPPED });
+    checks.push({ name: "Products listed", passed: false, detail: SKIPPED });
   } else {
+    const ok = Boolean(data.hasProducts);
     checks.push({
-      name: "Products listed (if applicable)",
-      passed: data.hasProducts === true || true,
-      detail: data.hasProducts ? "Products section populated." : "No products listed (skip if you're a service business).",
+      name: "Products listed",
+      passed: ok,
+      detail: ok ? "Products section populated." : "No products listed.",
     });
+    if (!ok) fallbackRecs.push("Add your products to the Products section so customers can browse them straight from search.");
   }
 
   if (data.hasServices === undefined) {
@@ -344,8 +370,8 @@ async function auditMedia(data: GbpData) {
     const hasVideo = data.videoCount >= 1;
     checks.push({
       name: "At least 1 video",
-      passed: true,
-      detail: hasVideo ? `${data.videoCount} video(s) uploaded.` : "No videos uploaded (recommended, not required).",
+      passed: hasVideo,
+      detail: hasVideo ? `${data.videoCount} video(s) uploaded.` : "No videos uploaded.",
     });
     if (!hasVideo) fallbackRecs.push("Upload a short video (≤30 seconds) to stand out in search results.");
   }
@@ -391,8 +417,8 @@ async function auditEngagement(data: GbpData) {
 
     checks.push({
       name: "Post in last 7 days",
-      passed: true,
-      detail: last7 >= 1 ? `${last7} post(s) in the last 7 days.` : "No Google Posts in the last 7 days (weekly cadence recommended).",
+      passed: last7 >= 1,
+      detail: last7 >= 1 ? `${last7} post(s) in the last 7 days.` : "No Google Posts in the last 7 days.",
     });
     if (last7 < 1) fallbackRecs.push("Aim for a weekly post — listings with weekly posts get more clicks.");
   }
@@ -400,7 +426,12 @@ async function auditEngagement(data: GbpData) {
   if (data.questions === undefined) {
     checks.push({ name: "Every Q&A has an owner response", passed: false, detail: SKIPPED });
   } else if (data.questions.length === 0) {
-    checks.push({ name: "Every Q&A has an owner response", passed: true, detail: "No Q&A questions on the listing." });
+    checks.push({
+      name: "Every Q&A has an owner response",
+      passed: false,
+      detail: "No customer questions on the listing yet.",
+    });
+    fallbackRecs.push("Seed your Q&A with the questions customers ask most often, then answer them from the owner account.");
   } else {
     const unanswered = data.questions.filter((q) => !q.ownerAnswered);
     const ok = unanswered.length === 0;
@@ -419,9 +450,10 @@ async function auditEngagement(data: GbpData) {
     if (recent.length === 0) {
       checks.push({
         name: "Review-response rate ≥ 50% (last 30 days)",
-        passed: true,
-        detail: "No new reviews in the last 30 days.",
+        passed: false,
+        detail: "No new reviews in the last 30 days — low review velocity is a ranking signal.",
       });
+      fallbackRecs.push("Ask recent customers to leave a review — listings with steady review flow rank higher.");
     } else {
       const responded = recent.filter((r) => r.ownerResponse).length;
       const rate = responded / recent.length;
