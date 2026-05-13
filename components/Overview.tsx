@@ -75,8 +75,11 @@ export function Overview() {
           return next;
         });
         if (e.type === "ok") {
+          // e.key is the feature slug from the runAll task — the API response
+          // body doesn't echo it, so without this the cache key would be
+          // `undefined` and every card would show "not run".
           saveResult(activeProject.id, {
-            slug: e.value.slug,
+            slug: e.key,
             result: e.value.result,
             inputs: e.value.inputs,
             ranAt: e.value.ranAt,

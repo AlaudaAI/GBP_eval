@@ -1,4 +1,5 @@
 import type { EvalResult } from "./eval-types";
+import type { ActionPlan } from "./plan";
 import type { Settings } from "./settings";
 
 export type CachedAuditResult = {
@@ -8,11 +9,21 @@ export type CachedAuditResult = {
   ranAt: number;
 };
 
+export type CachedPlan = {
+  plan: ActionPlan;
+  generatedAt: number;
+  // Max ranAt of the audit results used to generate this plan. If any
+  // current result has a newer ranAt, the cached plan is stale and the
+  // /report/plan page will regenerate.
+  generatedFromRanAt: number;
+};
+
 export type Project = {
   id: string;
   name: string;
   settings: Settings;
   results: Record<string, CachedAuditResult>;
+  cachedPlan?: CachedPlan;
 };
 
 export type WorkspaceState = {
