@@ -1,16 +1,14 @@
 import { Redis } from "@upstash/redis";
 import type { GbpData } from "./gbp-types";
-import { fetchGbp as fetchFromOutscraper, OutscraperNoProfileError } from "./outscraper";
+import { fetchGbp as fetchFromOutscraper } from "./outscraper";
 import { fetchGbp as fetchFromPlaces } from "./places";
 
 // Cache successful Outscraper fetches for a minute so Run All (which fires
-// all 5 audits back-to-back for the same Place ID) doesn't call Outscraper
-// five times. Outscraper's cache is flaky on cold lookups — only one of
-// those five calls might hit a warm cache, leaving the others to fall
-// back to Places. Sharing one fetch eliminates the mixed-source results.
+// every audit back-to-back for the same Place ID) doesn't call Outscraper
+// repeatedly. Outscraper's own cache is flaky on cold lookups, so sharing
+// one fetch per Run All eliminates mixed-source results.
 //
-// Only successful Outscraper responses are cached; Places fallbacks are
-// not, so a later attempt still gets a chance to reach Outscraper.
+// Only successful Outscraper responses are cached.
 
 const CACHE_PREFIX = "gbp:cache:";
 const CACHE_TTL_SEC = 60;
@@ -59,20 +57,13 @@ export async function loadGbp(args: {
   const outscraperKey = args.outscraperApiKey || process.env.OUTSCRAPER_API_KEY;
   const placesKey = process.env.GOOGLE_PLACES_API_KEY;
 
+  // Outscraper-only by design: when an Outscraper key is configured we never
+  // silently fall back to Google Places, which has far less data. The audit
+  // surfaces Outscraper's error instead so we can fix it at the source.
   if (outscraperKey) {
-    try {
-      const data = await fetchFromOutscraper(args.placeId, { apiKey: outscraperKey });
-      await writeCache(data);
-      return data;
-    } catch (e) {
-      if (e instanceof OutscraperNoProfileError && placesKey) {
-        console.warn(
-          `[gbp-source] Outscraper had no data for ${args.placeId}; falling back to Google Places.`,
-        );
-        return fetchFromPlaces(args.placeId);
-      }
-      throw e;
-    }
+    const data = await fetchFromOutscraper(args.placeId, { apiKey: outscraperKey });
+    await writeCache(data);
+    return data;
   }
   if (placesKey) {
     return fetchFromPlaces(args.placeId);

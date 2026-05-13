@@ -208,13 +208,14 @@ async function auditProfileCompleteness(data: GbpData) {
   }
 
   if (data.description === undefined) {
-    checks.push({ name: "Description ≥ 200 chars", passed: false, detail: SKIPPED });
+    checks.push({ name: "Description ≥ 200 chars", passed: false, detail: SKIPPED, weight: 0.5 });
   } else {
     const ok = data.description.length >= 200;
     checks.push({
       name: "Description ≥ 200 chars",
       passed: ok,
       detail: ok ? `Description is ${data.description.length} chars.` : `Description is only ${data.description.length} chars (need 200+).`,
+      weight: 0.5,
     });
     if (!ok) fallbackRecs.push("Expand your profile description to at least 200 characters, focusing on what you do and for whom.");
   }
@@ -306,12 +307,13 @@ async function auditMedia(data: GbpData) {
 
   const now = Date.now();
   if (data.questions === undefined) {
-    checks.push({ name: "Every Q&A has an owner response", passed: false, detail: SKIPPED });
+    checks.push({ name: "Every Q&A has an owner response", passed: false, detail: SKIPPED, weight: 0.5 });
   } else if (data.questions.length === 0) {
     checks.push({
       name: "Every Q&A has an owner response",
       passed: false,
       detail: "No customer questions on the listing yet.",
+      weight: 0.5,
     });
     fallbackRecs.push("Seed your Q&A with the questions customers ask most often, then answer them from the owner account.");
   } else {
@@ -321,12 +323,13 @@ async function auditMedia(data: GbpData) {
       name: "Every Q&A has an owner response",
       passed: ok,
       detail: ok ? `${data.questions.length} question(s), all answered by the owner.` : `${unanswered.length} of ${data.questions.length} question(s) have no owner response.`,
+      weight: 0.5,
     });
     if (!ok) fallbackRecs.push("Answer every Q&A question from the owner account — leaving customers' questions hanging looks unresponsive.");
   }
 
   if (data.reviews === undefined) {
-    checks.push({ name: "Review-response rate ≥ 50% (last 30 days)", passed: false, detail: SKIPPED });
+    checks.push({ name: "Review-response rate ≥ 50% (last 30 days)", passed: false, detail: SKIPPED, weight: 0.5 });
   } else {
     const recent = data.reviews.filter((r) => r.publishedAt >= now - THIRTY_DAYS);
     if (recent.length === 0) {
@@ -334,6 +337,7 @@ async function auditMedia(data: GbpData) {
         name: "Review-response rate ≥ 50% (last 30 days)",
         passed: false,
         detail: "No new reviews in the last 30 days — low review velocity is a ranking signal.",
+        weight: 0.5,
       });
       fallbackRecs.push("Ask recent customers to leave a review — listings with steady review flow rank higher.");
     } else {
@@ -344,6 +348,7 @@ async function auditMedia(data: GbpData) {
         name: "Review-response rate ≥ 50% (last 30 days)",
         passed: ok,
         detail: `Responded to ${responded} of ${recent.length} recent review(s) (${Math.round(rate * 100)}%).`,
+        weight: 0.5,
       });
       if (!ok) fallbackRecs.push("Reply to at least half of new reviews within a week — show customers you're paying attention.");
     }

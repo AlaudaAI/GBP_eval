@@ -74,6 +74,14 @@ export function ResultPanel({ result }: { result: EvalResult }) {
                         optional
                       </span>
                     )}
+                    {!c.optional && typeof c.weight === "number" && c.weight < 1 && (
+                      <span
+                        className="ml-2 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800"
+                        title={`Counts as ${c.weight}× weight in the score.`}
+                      >
+                        ½ weight
+                      </span>
+                    )}
                   </div>
                   <div className="text-slate-600">{c.detail}</div>
                 </div>

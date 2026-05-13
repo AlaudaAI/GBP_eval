@@ -27,15 +27,22 @@ HARD RULES
 - Output ONLY JSON: {"diagnosis": string, "items": PlanItem[]}.
 - diagnosis: ONE sentence, max 30 words, plain English, customer-facing.
 - 1–6 items total, ordered by priority (P0 first).
-- title: ≤ 60 chars, imperative ("Add a cover photo"), no jargon.
+- title: ≤ 60 chars, imperative ("Add a logo"), no jargon.
 - body: ≤ 30 words, explains the customer outcome.
 - source: the audit slug it came from.
 - Prioritize fixes by customer-visible impact, not technical difficulty.
 
+INPUT NOTES
+- The failed_checks list omits optional checks already — every item shown is something that affects the score.
+- Each failed check has a "weight" field (1 = standard, 0.5 = soft signal).
+  Weight-0.5 checks (description length, Q&A coverage, review-response rate)
+  matter, but treat them as secondary — assign P2 unless they're the only
+  problem on the listing.
+
 PRIORITY GUIDE
-- P0: visible to customers right now and hurting trust (wrong phone, closed status, no photos)
-- P1: missing fundamentals (no description, no hours, no logo)
-- P2: completeness boost (more photos, more posts, holiday hours)
+- P0: visible to customers right now and hurting trust (wrong phone, closed status, no primary category, no logo)
+- P1: missing fundamentals (no description content at all, no hours)
+- P2: soft / weight-0.5 signals (short description, unanswered Q&A, low review-response rate)
 - P3: nice-to-have polish
 
 JARGON → PLAIN ENGLISH
@@ -109,17 +116,22 @@ function collectFailedChecks(project: Project): Array<{
   audit: string;
   check: string;
   detail: string;
+  weight: number;
 }> {
-  const out: Array<{ audit: string; check: string; detail: string }> = [];
+  const out: Array<{ audit: string; check: string; detail: string; weight: number }> = [];
   for (const feature of FEATURES) {
     const cached = project.results[feature.slug];
     if (!cached) continue;
     for (const check of cached.result.checks) {
-      if (!check.passed) {
-        out.push({ audit: feature.slug, check: check.name, detail: check.detail });
-      }
+      if (check.passed) continue;
+      if (check.optional) continue;
+      const weight = typeof check.weight === "number" && check.weight >= 0 ? check.weight : 1;
+      out.push({ audit: feature.slug, check: check.name, detail: check.detail, weight });
     }
   }
+  // Surface heavier-weighted (more impactful) checks first so the LLM sees
+  // them at the top of the failed_checks payload.
+  out.sort((a, b) => b.weight - a.weight);
   return out;
 }
 

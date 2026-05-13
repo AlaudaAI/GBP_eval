@@ -35,7 +35,9 @@ export async function fetchGbp(
     );
   } catch (e) {
     if (e instanceof Error && e.name === "AbortError") {
-      throw new OutscraperNoProfileError(placeId);
+      // Distinguish timeouts from "not indexed" — the previous behavior
+      // conflated the two and routed timeouts to the Places fallback.
+      throw new Error(`Outscraper timed out fetching ${placeId} after ${OUTSCRAPER_TIMEOUT_MS}ms.`);
     }
     throw e;
   }

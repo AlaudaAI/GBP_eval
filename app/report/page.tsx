@@ -88,7 +88,10 @@ export default function FullReportPage() {
                   <span className={c.passed ? "text-emerald-700" : c.detail === "skipped: data source limited" ? "text-slate-500" : "text-red-700"}>
                     {c.passed ? "✓" : c.detail === "skipped: data source limited" ? "–" : "✗"}
                   </span>{" "}
-                  <span className="font-medium">{c.name}{c.optional ? " (optional)" : ""}.</span>{" "}
+                  <span className="font-medium">
+                    {c.name}
+                    {c.optional ? " (optional)" : !c.optional && typeof c.weight === "number" && c.weight < 1 ? " (½ weight)" : ""}.
+                  </span>{" "}
                   <span className="text-slate-700">{c.detail}</span>
                 </li>
               ))}
