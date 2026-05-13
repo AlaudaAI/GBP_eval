@@ -37,9 +37,6 @@ export async function runAudit(
     case "core-listing":
       build = await auditCoreListing(data, settings);
       break;
-    case "categories":
-      build = await auditCategories(data, settings);
-      break;
     case "profile-completeness":
       build = await auditProfileCompleteness(data);
       break;
@@ -165,9 +162,9 @@ async function auditCoreListing(data: GbpData, settings: Settings) {
   return { checks, summary, fallbackRecs };
 }
 
-// ---------- categories ----------
+// ---------- profile-completeness ----------
 
-async function auditCategories(data: GbpData, settings: Settings) {
+async function auditProfileCompleteness(data: GbpData) {
   const checks: CheckResult[] = [];
   const fallbackRecs: string[] = [];
 
@@ -175,26 +172,11 @@ async function auditCategories(data: GbpData, settings: Settings) {
     checks.push({ name: "Primary category set", passed: false, detail: "No primary category found." });
     fallbackRecs.push("Pick a primary category that matches your most important service.");
   } else {
-    const services = (settings.services || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-    if (services.length === 0) {
-      // Can't verify the match without a configured services list.
-      checks.push({
-        name: "Primary category matches your services",
-        passed: false,
-        detail: SKIPPED,
-      });
-    } else {
-      const cat = data.primaryCategory.toLowerCase();
-      const matchesService = services.some((s) => cat.includes(s) || s.includes(cat));
-      checks.push({
-        name: "Primary category matches your services",
-        passed: matchesService,
-        detail: matchesService
-          ? `Primary category: ${data.primaryCategory}.`
-          : `Primary category "${data.primaryCategory}" does not appear in your services list.`,
-      });
-      if (!matchesService) fallbackRecs.push(`Change your primary category to align with: ${services.slice(0, 3).join(", ")}.`);
-    }
+    checks.push({
+      name: "Primary category set",
+      passed: true,
+      detail: `Primary category: ${data.primaryCategory}.`,
+    });
   }
 
   if (data.secondaryCategories === undefined) {
@@ -214,18 +196,16 @@ async function auditCategories(data: GbpData, settings: Settings) {
     if (vague.length > 0) fallbackRecs.push("Replace generic categories like \"Service\" with specific service types.");
   }
 
-  const failed = checks.filter((c) => !c.passed && c.detail !== SKIPPED).length;
-  const summary = failed === 0
-    ? "Categorization looks healthy."
-    : `${failed} category issue${failed === 1 ? "" : "s"} to address.`;
-  return { checks, summary, fallbackRecs };
-}
-
-// ---------- profile-completeness ----------
-
-async function auditProfileCompleteness(data: GbpData) {
-  const checks: CheckResult[] = [];
-  const fallbackRecs: string[] = [];
+  if (data.logoPresent === undefined) {
+    checks.push({ name: "Logo photo present", passed: false, detail: SKIPPED });
+  } else {
+    checks.push({
+      name: "Logo photo present",
+      passed: data.logoPresent,
+      detail: data.logoPresent ? "Logo is on the profile." : "No logo photo found.",
+    });
+    if (!data.logoPresent) fallbackRecs.push("Upload a clean square logo so customers recognize your brand on search.");
+  }
 
   if (data.description === undefined) {
     checks.push({ name: "Description ≥ 200 chars", passed: false, detail: SKIPPED });
@@ -294,17 +274,6 @@ async function auditProfileCompleteness(data: GbpData) {
 async function auditMedia(data: GbpData) {
   const checks: CheckResult[] = [];
   const fallbackRecs: string[] = [];
-
-  if (data.logoPresent === undefined) {
-    checks.push({ name: "Logo photo present", passed: false, detail: SKIPPED });
-  } else {
-    checks.push({
-      name: "Logo photo present",
-      passed: data.logoPresent,
-      detail: data.logoPresent ? "Logo is on the profile." : "No logo photo found.",
-    });
-    if (!data.logoPresent) fallbackRecs.push("Upload a clean square logo so customers recognize your brand on search.");
-  }
 
   const photos = data.photos ?? [];
   const photoCountKnown = data.photos !== undefined;

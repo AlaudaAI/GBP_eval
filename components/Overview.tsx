@@ -104,7 +104,7 @@ export function Overview() {
           {activeProject.name} — GBP scoreboard
         </h1>
         <p className="text-sm text-slate-600 mt-1">
-          Four audits cover the GBP best-practice items: core listing health, categories,
+          Three audits cover the GBP best-practice items: core listing health,
           profile completeness, and an optional media/voice check.
         </p>
       </header>
