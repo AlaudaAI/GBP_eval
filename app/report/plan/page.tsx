@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWorkspace } from "@/components/WorkspaceProvider";
 import { WorkspaceFallback } from "@/components/WorkspaceFallback";
+import { FEATURES } from "@/lib/features";
 import type { ActionPlan, PlanPriority } from "@/lib/plan";
 
 const priorityClass: Record<PlanPriority, string> = {
@@ -21,7 +22,10 @@ function maxResultsRanAt(results: Record<string, { ranAt: number }>): number {
 function overallScore(
   results: Record<string, { result: { score: number } }>,
 ): { score: number; status: "pass" | "warn" | "fail"; label: string } | null {
-  const values = Object.values(results);
+  const scoredSlugs = new Set(FEATURES.filter((f) => !f.optional).map((f) => f.slug));
+  const values = Object.entries(results)
+    .filter(([slug]) => scoredSlugs.has(slug))
+    .map(([, r]) => r);
   if (values.length === 0) return null;
   const score = Math.round(values.reduce((s, r) => s + r.result.score, 0) / values.length);
   const status = score >= 80 ? "pass" : score >= 50 ? "warn" : "fail";

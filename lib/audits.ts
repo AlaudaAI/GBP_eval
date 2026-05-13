@@ -7,9 +7,7 @@ import { findFeature, type Feature } from "./features";
 import { deriveAreaCode, type Settings } from "./settings";
 
 const SKIPPED = "skipped: data source limited";
-const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
-const NINETY_DAYS = 90 * 24 * 60 * 60 * 1000;
 
 export type AuditInputs = {
   placeId: string;
@@ -47,9 +45,6 @@ export async function runAudit(
       break;
     case "media":
       build = await auditMedia(data);
-      break;
-    case "engagement":
-      build = await auditEngagement(data);
       break;
     default:
       throw new Error(`Unimplemented audit: ${slug}`);
@@ -203,29 +198,9 @@ async function auditCategories(data: GbpData, settings: Settings) {
   }
 
   if (data.secondaryCategories === undefined) {
-    checks.push({ name: "At least 3 secondary categories", passed: false, detail: SKIPPED });
-    checks.push({ name: "At most 9 secondary categories", passed: false, detail: SKIPPED });
     checks.push({ name: "No vague top-level categories", passed: false, detail: SKIPPED });
   } else {
     const count = data.secondaryCategories.length;
-    checks.push({
-      name: "At least 3 secondary categories",
-      passed: count >= 3,
-      detail: count >= 3 ? `${count} secondary categories set.` : `Only ${count} secondary categories — Google allows up to 9.`,
-    });
-    if (count < 3) fallbackRecs.push("Add more secondary categories — aim for one per distinct service you offer.");
-
-    checks.push({
-      name: "At most 9 secondary categories",
-      passed: count >= 1 && count <= 9,
-      detail: count === 0
-        ? "No secondary categories — Google allows up to 9."
-        : count <= 9
-          ? `${count} categories is within Google's limit of 9.`
-          : `${count} categories — Google only counts the first 9.`,
-    });
-    if (count > 9) fallbackRecs.push("Trim secondary categories to your 9 most important services.");
-
     const vague = data.secondaryCategories.filter((c) => /^(service|establishment|point of interest|business)$/i.test(c.trim()));
     checks.push({
       name: "No vague top-level categories",
@@ -286,18 +261,6 @@ async function auditProfileCompleteness(data: GbpData) {
     if (!data.holidayHoursSet) fallbackRecs.push("Add holiday hours for any upcoming closures so customers don't show up to a locked door.");
   }
 
-  if (data.hasProducts === undefined) {
-    checks.push({ name: "Products listed", passed: false, detail: SKIPPED });
-  } else {
-    const ok = Boolean(data.hasProducts);
-    checks.push({
-      name: "Products listed",
-      passed: ok,
-      detail: ok ? "Products section populated." : "No products listed.",
-    });
-    if (!ok) fallbackRecs.push("Add your products to the Products section so customers can browse them straight from search.");
-  }
-
   if (data.hasServices === undefined) {
     checks.push({ name: "Services listed", passed: false, detail: SKIPPED });
   } else {
@@ -343,17 +306,6 @@ async function auditMedia(data: GbpData) {
     if (!data.logoPresent) fallbackRecs.push("Upload a clean square logo so customers recognize your brand on search.");
   }
 
-  if (data.coverPresent === undefined) {
-    checks.push({ name: "Cover photo present", passed: false, detail: SKIPPED });
-  } else {
-    checks.push({
-      name: "Cover photo present",
-      passed: data.coverPresent,
-      detail: data.coverPresent ? "Cover photo is on the profile." : "No cover photo found.",
-    });
-    if (!data.coverPresent) fallbackRecs.push("Upload a wide cover photo showing your location, team, or signature work.");
-  }
-
   const photos = data.photos ?? [];
   const photoCountKnown = data.photos !== undefined;
   if (!photoCountKnown) {
@@ -380,53 +332,7 @@ async function auditMedia(data: GbpData) {
     if (!hasVideo) fallbackRecs.push("Upload a short video (≤30 seconds) to stand out in search results.");
   }
 
-  if (!photoCountKnown) {
-    checks.push({ name: "3+ owner photos in last 90 days", passed: false, detail: SKIPPED });
-  } else {
-    const cutoff = Date.now() - NINETY_DAYS;
-    const recentOwner = photos.filter((p) => p.uploadedByOwner === true && (p.uploadedAt ?? 0) >= cutoff).length;
-    const ok = recentOwner >= 3;
-    checks.push({
-      name: "3+ owner photos in last 90 days",
-      passed: ok,
-      detail: ok ? `${recentOwner} owner-uploaded photos in the last 90 days.` : `${recentOwner} owner-uploaded photos in the last 90 days (target: 3).`,
-    });
-    if (!ok) fallbackRecs.push("Upload at least 3 fresh photos every 90 days to signal your business is active.");
-  }
-
-  const failed = checks.filter((c) => !c.passed && c.detail !== SKIPPED).length;
-  const summary = failed === 0 ? "Media coverage is in good shape." : `${failed} media issue${failed === 1 ? "" : "s"} to fix.`;
-  return { checks, summary, fallbackRecs };
-}
-
-// ---------- engagement ----------
-
-async function auditEngagement(data: GbpData) {
-  const checks: CheckResult[] = [];
-  const fallbackRecs: string[] = [];
-
   const now = Date.now();
-  if (data.posts === undefined) {
-    checks.push({ name: "Post in last 30 days", passed: false, detail: SKIPPED });
-    checks.push({ name: "Post in last 7 days", passed: false, detail: SKIPPED });
-  } else {
-    const last30 = data.posts.filter((p) => p.publishedAt >= now - THIRTY_DAYS).length;
-    const last7 = data.posts.filter((p) => p.publishedAt >= now - SEVEN_DAYS).length;
-    checks.push({
-      name: "Post in last 30 days",
-      passed: last30 >= 1,
-      detail: last30 >= 1 ? `${last30} post(s) in the last 30 days.` : "No Google Posts in the last 30 days.",
-    });
-    if (last30 < 1) fallbackRecs.push("Publish a Google Post at least once a month — sales, events, or behind-the-scenes work all count.");
-
-    checks.push({
-      name: "Post in last 7 days",
-      passed: last7 >= 1,
-      detail: last7 >= 1 ? `${last7} post(s) in the last 7 days.` : "No Google Posts in the last 7 days.",
-    });
-    if (last7 < 1) fallbackRecs.push("Aim for a weekly post — listings with weekly posts get more clicks.");
-  }
-
   if (data.questions === undefined) {
     checks.push({ name: "Every Q&A has an owner response", passed: false, detail: SKIPPED });
   } else if (data.questions.length === 0) {
@@ -472,7 +378,7 @@ async function auditEngagement(data: GbpData) {
   }
 
   const failed = checks.filter((c) => !c.passed && c.detail !== SKIPPED).length;
-  const summary = failed === 0 ? "Engagement signals are healthy." : `${failed} engagement issue${failed === 1 ? "" : "s"} to fix.`;
+  const summary = failed === 0 ? "Media and customer-voice signals look healthy." : `${failed} media/voice signal${failed === 1 ? "" : "s"} to fix.`;
   return { checks, summary, fallbackRecs };
 }
 

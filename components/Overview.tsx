@@ -24,11 +24,14 @@ export function Overview() {
 
   const overall = useMemo(() => {
     if (!activeProject) return null;
-    const results = Object.values(activeProject.results);
+    const scoredSlugs = new Set(FEATURES.filter((f) => !f.optional).map((f) => f.slug));
+    const results = Object.entries(activeProject.results)
+      .filter(([slug]) => scoredSlugs.has(slug))
+      .map(([, r]) => r);
     if (results.length === 0) return null;
     const avg = Math.round(results.reduce((s, r) => s + r.result.score, 0) / results.length);
     const status = avg >= 80 ? "pass" : avg >= 50 ? "warn" : "fail";
-    return { score: avg, status: status as "pass" | "warn" | "fail" };
+    return { score: avg, status: status as "pass" | "warn" | "fail", count: results.length };
   }, [activeProject]);
 
   if (!activeProject) return null;
@@ -101,8 +104,8 @@ export function Overview() {
           {activeProject.name} — GBP scoreboard
         </h1>
         <p className="text-sm text-slate-600 mt-1">
-          Five audits cover the 14 GBP best-practice items: core listing health, categories,
-          profile completeness, media, and engagement.
+          Four audits cover the GBP best-practice items: core listing health, categories,
+          profile completeness, and an optional media/voice check.
         </p>
       </header>
 
@@ -111,7 +114,7 @@ export function Overview() {
           <div className="text-4xl font-semibold tabular-nums">{overall ? overall.score : "—"}</div>
           {overall && <StatusBadge status={overall.status} />}
           <div className="text-sm text-slate-600">
-            {overall ? `Overall score across ${Object.keys(activeProject.results).length} audit(s).` : "No audits run yet."}
+            {overall ? `Overall score across ${overall.count} scored audit(s); optional audits excluded.` : "No audits run yet."}
           </div>
         </div>
         {progress && (
