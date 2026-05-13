@@ -11,7 +11,6 @@ const priorityClass: Record<PlanPriority, string> = {
   P0: "bg-red-100 text-red-800 border-red-200",
   P1: "bg-amber-100 text-amber-800 border-amber-200",
   P2: "bg-blue-100 text-blue-800 border-blue-200",
-  P3: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
 function maxResultsRanAt(results: Record<string, { ranAt: number }>): number {

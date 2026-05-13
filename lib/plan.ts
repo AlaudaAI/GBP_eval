@@ -5,36 +5,36 @@ import { FEATURES } from "./features";
 const MODEL = "claude-haiku-4-5-20251001";
 const TARGET_ITEMS = 5;
 const MAX_TITLE_CHARS = 70;
-const MAX_BODY_CHARS = 220;
+const MAX_BODY_CHARS = 140;
 
 const GROWTH_FILLERS: Array<{ title: string; body: string }> = [
   {
     title: "Build review momentum",
-    body: "Customers trust businesses with a steady stream of recent reviews. Make review requests a routine part of how you close every job.",
+    body: "Steady recent reviews drive trust. Make review requests routine after every job.",
   },
   {
     title: "Show an active, current business",
-    body: "Profiles that look maintained convert better. Regular updates — photos, posts, seasonal notes — signal that you're paying attention.",
+    body: "Regular photos and updates signal you're paying attention — and lift conversion.",
   },
   {
     title: "Strengthen the customer-voice signal",
-    body: "Visible Q&A answers and review replies are the clearest sign that a business is responsive. They shape first impressions before a customer ever calls.",
+    body: "Visible Q&A and review replies are the clearest proof someone's home.",
   },
   {
     title: "Sharpen category positioning",
-    body: "Showing up for the right searches starts with how you're categorized. Periodically revisit categories as your service mix evolves.",
+    body: "Revisit categories periodically so you show up for the searches that matter.",
   },
   {
     title: "Plan for seasonal moments",
-    body: "Holiday hours, busy-season posts, and timely promotions turn search visibility into bookings during the periods that matter most.",
+    body: "Holiday hours and timely posts convert visibility into bookings when it counts.",
   },
   {
-    title: "Lean into rich media over time",
-    body: "Photos and short videos are still the most effective profile assets. A small library, refreshed regularly, compounds over months.",
+    title: "Lean into rich media",
+    body: "A small library of photos and short videos, refreshed often, compounds over time.",
   },
 ];
 
-export type PlanPriority = "P0" | "P1" | "P2" | "P3";
+export type PlanPriority = "P0" | "P1" | "P2";
 
 export type PlanItem = {
   priority: PlanPriority;
@@ -65,8 +65,8 @@ HARD RULES
 - title: ≤ 60 chars, a strategic theme or focus area, not an imperative task.
   GOOD: "Strengthen first-impression signals", "Rebuild category positioning"
   BAD:  "Upload a 720x720 logo to GBP", "Set holiday hours for Thanksgiving"
-- body: ≤ 30 words, explains WHY this matters to customers and what good
-  looks like — not the steps to do it.
+- body: ≤ 18 words. ONE crisp sentence on WHY this matters to customers and
+  what good looks like — no implementation steps, no numbers, no how-to.
 - source: the audit slug it came from (e.g. "core-listing", "profile-completeness",
   "media") for items rooted in a failed check, or "growth" for proactive
   strategic add-ons.
@@ -83,20 +83,19 @@ REACHING 5 ITEMS
 - If there are fewer than 5 themes after clustering, fill remaining rows
   with proactive growth recommendations (review momentum, ongoing media
   refresh, customer-voice strengthening, category positioning, seasonal
-  planning). Use source "growth" and priority P3 for these.
+  planning). Use source "growth" and priority P2 for these.
 
-PRIORITY GUIDE
+PRIORITY GUIDE — only P0, P1, P2 exist. Do not invent P3.
 - P0: visible to customers right now and actively hurting trust (wrong phone,
   closed status, no primary category, no logo, no address)
 - P1: missing fundamentals that limit how the listing performs (no description,
   hours absent, services list empty)
-- P2: soft / weight-0.5 signals as a cluster (description depth, Q&A coverage,
-  review-response cadence)
-- P3: proactive growth recommendations, longer-horizon plays
+- P2: soft / weight-0.5 signals and growth themes (description depth, Q&A
+  coverage, review-response cadence, longer-horizon plays)
 
 VOICE
 - Plain English, consultative. No GBP/SEO jargon, no implementation steps,
-  no pixel dimensions, no exact word counts.`;
+  no pixel dimensions, no exact word counts. Keep every body to one sentence.`;
 
 let cached: Anthropic | null = null;
 function client(): Anthropic | null {
@@ -211,22 +210,22 @@ function themeForAudit(audit: string): { title: string; body: string } {
     case "core-listing":
       return {
         title: "Fix the fundamentals customers see first",
-        body: "Address, phone, website, and operational status are the first things a search result shows. Any gap or mismatch erodes trust before a call happens.",
+        body: "Wrong contact or status details erode trust before a customer ever picks up the phone.",
       };
     case "profile-completeness":
       return {
         title: "Round out the profile basics",
-        body: "Empty sections — a thin description, missing hours, no logo, weak categories — leave customers guessing and Google with less to rank against.",
+        body: "Empty sections leave customers guessing and give Google less to rank you against.",
       };
     case "media":
       return {
         title: "Strengthen the customer-voice signal",
-        body: "Q&A and review replies are the clearest proof that someone's home. They shape how a profile feels long before a customer reaches out.",
+        body: "Visible Q&A and review replies are the clearest proof your team is responsive.",
       };
     default:
       return {
-        title: "Address profile gaps in the audit",
-        body: "There are score-affecting items that, addressed together, will measurably lift how the profile performs.",
+        title: "Address the score-affecting gaps",
+        body: "A focused pass on the remaining gaps will lift how this profile performs.",
       };
   }
 }
@@ -236,12 +235,12 @@ function padWithGrowth(items: PlanItem[], target: number): void {
   while (items.length < target && i < GROWTH_FILLERS.length) {
     const filler = GROWTH_FILLERS[i++];
     if (items.some((it) => it.title === filler.title)) continue;
-    items.push({ priority: "P3", title: filler.title, body: filler.body, source: "growth" });
+    items.push({ priority: "P2", title: filler.title, body: filler.body, source: "growth" });
   }
 }
 
 function capPlan(plan: ActionPlan, failedCount: number): ActionPlan {
-  const validPriorities: PlanPriority[] = ["P0", "P1", "P2", "P3"];
+  const validPriorities: PlanPriority[] = ["P0", "P1", "P2"];
   const items: PlanItem[] = plan.items
     .filter((it) => it && typeof it.title === "string" && typeof it.body === "string")
     .map((it) => ({
