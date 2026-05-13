@@ -151,20 +151,6 @@ async function auditCoreListing(data: GbpData, settings: Settings) {
   });
   if (!statusOk) fallbackRecs.push("Update business status to OPERATIONAL — closed or relocated listings hide you from results.");
 
-  if (typeof data.duplicateCandidates === "number") {
-    const ok = data.duplicateCandidates === 0;
-    checks.push({
-      name: "No duplicate listings detected",
-      passed: ok,
-      detail: ok
-        ? "No other listings found sharing this business name and city."
-        : `${data.duplicateCandidates} possible duplicate listing(s) found.`,
-    });
-    if (!ok) fallbackRecs.push("Search Google Maps for duplicate listings of your business and request they be merged or removed.");
-  } else {
-    checks.push({ name: "No duplicate listings detected", passed: false, detail: SKIPPED });
-  }
-
   const failed = checks.filter((c) => !c.passed && c.detail !== SKIPPED).length;
   const summary = failed === 0
     ? "Core listing fundamentals look correct."

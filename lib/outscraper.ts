@@ -87,23 +87,7 @@ export async function fetchGbp(
     reviews: parseReviews(reviewsArr),
     isPoBox: looksLikePoBox(profile.full_address ?? profile.address),
     isVirtualOffice: false,
-    duplicateCandidates: undefined,
   };
-
-  if (data.name) {
-    try {
-      const sameNameRaw = await fetchJSON(
-        `${SEARCH_URL}?query=${encodeURIComponent(data.name + (extractCity(data.address) ? " " + extractCity(data.address) : ""))}&limit=5&async=false`,
-        headers,
-      );
-      const matches = pickList(sameNameRaw)
-        .filter((r) => r && r.place_id && r.place_id !== placeId)
-        .filter((r) => normalizeName(r.name) === normalizeName(data.name!));
-      data.duplicateCandidates = matches.length;
-    } catch {
-      // Non-fatal: leave undefined.
-    }
-  }
 
   return data;
 }
@@ -158,16 +142,6 @@ function isPlainObject(v: any): v is Record<string, unknown> {
 function looksLikePoBox(address: any): boolean {
   if (typeof address !== "string") return false;
   return /\b(p\.?\s*o\.?\s*box|post office box)\b/i.test(address);
-}
-
-function extractCity(addr?: string): string {
-  if (!addr) return "";
-  const parts = addr.split(",").map((s) => s.trim());
-  return parts.length >= 3 ? parts[parts.length - 3] : "";
-}
-
-function normalizeName(n: string): string {
-  return n.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function hasUpcomingHolidayHours(profile: any): boolean {
