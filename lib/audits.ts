@@ -29,20 +29,33 @@ export async function runAudit(
     outscraperApiKey: settings.outscraperApiKey,
   });
 
+  let build: {
+    checks: CheckResult[];
+    summary: string;
+    fallbackRecs: string[];
+    meta?: Record<string, unknown>;
+  };
   switch (slug) {
     case "core-listing":
-      return finalize(feature, await auditCoreListing(data, settings));
+      build = await auditCoreListing(data, settings);
+      break;
     case "categories":
-      return finalize(feature, await auditCategories(data, settings));
+      build = await auditCategories(data, settings);
+      break;
     case "profile-completeness":
-      return finalize(feature, await auditProfileCompleteness(data));
+      build = await auditProfileCompleteness(data);
+      break;
     case "media":
-      return finalize(feature, await auditMedia(data));
+      build = await auditMedia(data);
+      break;
     case "engagement":
-      return finalize(feature, await auditEngagement(data));
+      build = await auditEngagement(data);
+      break;
     default:
       throw new Error(`Unimplemented audit: ${slug}`);
   }
+  build.meta = { ...(build.meta ?? {}), source: data.source };
+  return finalize(feature, build);
 }
 
 async function finalize(
@@ -54,7 +67,6 @@ async function finalize(
     meta?: Record<string, unknown>;
   },
 ): Promise<EvalResult> {
-  // Skipped checks (data source limited) don't count toward the score.
   const scored = build.checks.filter((c) => c.detail !== SKIPPED);
   const { score, status } = scoreFromChecks(scored);
   const recommendations = await enhanceRecommendations({
@@ -78,7 +90,6 @@ async function auditCoreListing(data: GbpData, settings: Settings) {
   const checks: CheckResult[] = [];
   const fallbackRecs: string[] = [];
 
-  // Address present and looks like a real street address.
   if (!data.address) {
     checks.push({ name: "Address present", passed: false, detail: "No address found on the listing." });
     fallbackRecs.push("Add a street address to your profile so customers can find you.");
@@ -89,7 +100,6 @@ async function auditCoreListing(data: GbpData, settings: Settings) {
     checks.push({ name: "Address is a real street address", passed: true, detail: `Address: ${data.address}.` });
   }
 
-  // Phone present and local area code.
   const expectedAreaCode = settings.localAreaCode || deriveAreaCode(settings.phone);
   if (!data.phone) {
     checks.push({ name: "Phone present", passed: false, detail: "No phone number on the listing." });
@@ -113,7 +123,6 @@ async function auditCoreListing(data: GbpData, settings: Settings) {
     });
   }
 
-  // Website matches settings.domain.
   const expectedDomain = settings.domain ? normalizeDomain(settings.domain) : "";
   if (!data.website) {
     checks.push({ name: "Website URL present", passed: false, detail: "No website URL on the listing." });
@@ -132,7 +141,6 @@ async function auditCoreListing(data: GbpData, settings: Settings) {
     checks.push({ name: "Website URL present", passed: true, detail: `Website: ${data.website}.` });
   }
 
-  // Business status.
   const statusOk = !data.businessStatus || data.businessStatus === "OPERATIONAL";
   checks.push({
     name: "Business status is OPERATIONAL",
@@ -143,7 +151,6 @@ async function auditCoreListing(data: GbpData, settings: Settings) {
   });
   if (!statusOk) fallbackRecs.push("Update business status to OPERATIONAL — closed or relocated listings hide you from results.");
 
-  // Duplicate listings.
   if (typeof data.duplicateCandidates === "number") {
     const ok = data.duplicateCandidates === 0;
     checks.push({
@@ -268,10 +275,9 @@ async function auditProfileCompleteness(data: GbpData) {
   if (data.hasProducts === undefined) {
     checks.push({ name: "Products listed (if applicable)", passed: false, detail: SKIPPED });
   } else {
-    // Products are optional for many businesses; pass if present, otherwise warn (not fail) — pass detail.
     checks.push({
       name: "Products listed (if applicable)",
-      passed: data.hasProducts === true || true, // soft-pass: we don't penalize service businesses
+      passed: data.hasProducts === true || true,
       detail: data.hasProducts ? "Products section populated." : "No products listed (skip if you're a service business).",
     });
   }
@@ -349,11 +355,10 @@ async function auditMedia(data: GbpData) {
   if (data.videoCount === undefined) {
     checks.push({ name: "At least 1 video", passed: false, detail: SKIPPED });
   } else {
-    // Soft check: pass if missing (warn-not-fail semantics) by always passing, but surface the count.
     const hasVideo = data.videoCount >= 1;
     checks.push({
       name: "At least 1 video",
-      passed: true, // warn-not-fail per brief
+      passed: true,
       detail: hasVideo ? `${data.videoCount} video(s) uploaded.` : "No videos uploaded (recommended, not required).",
     });
     if (!hasVideo) fallbackRecs.push("Upload a short video (≤30 seconds) to stand out in search results.");
@@ -398,7 +403,6 @@ async function auditEngagement(data: GbpData) {
     });
     if (last30 < 1) fallbackRecs.push("Publish a Google Post at least once a month — sales, events, or behind-the-scenes work all count.");
 
-    // Warn (not fail) per spec: always passes, surfaces count.
     checks.push({
       name: "Post in last 7 days",
       passed: true,

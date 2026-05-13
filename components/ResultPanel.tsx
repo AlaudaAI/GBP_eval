@@ -17,12 +17,30 @@ export function StatusBadge({ status }: { status: EvalResult["status"] | "runnin
   );
 }
 
+export function SourceBadge({ source }: { source: unknown }) {
+  if (source !== "outscraper" && source !== "places") return null;
+  const isOutscraper = source === "outscraper";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+        isOutscraper
+          ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+          : "bg-amber-50 text-amber-800 border-amber-200"
+      }`}
+      title={isOutscraper ? "Full GBP data via Outscraper" : "Limited data — Outscraper had no record for this Place ID, fell back to Google Places"}
+    >
+      via {isOutscraper ? "Outscraper" : "Google Places (limited)"}
+    </span>
+  );
+}
+
 export function ResultPanel({ result }: { result: EvalResult }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="text-3xl font-semibold tabular-nums">{result.score}</div>
         <StatusBadge status={result.status} />
+        <SourceBadge source={result.meta?.source} />
         <p className="text-sm text-slate-700">{result.summary}</p>
       </div>
 

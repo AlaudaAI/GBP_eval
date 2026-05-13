@@ -7,7 +7,7 @@ import { defaultValueForInput } from "@/lib/settings";
 import { runAll, type RunAllEvent } from "@/lib/run-all";
 import type { CachedAuditResult } from "@/lib/workspace-types";
 import { useWorkspace } from "./WorkspaceProvider";
-import { StatusBadge } from "./ResultPanel";
+import { StatusBadge, SourceBadge } from "./ResultPanel";
 
 type AuditStatus =
   | { kind: "queued" }
@@ -62,7 +62,9 @@ export function Overview() {
           return (await resp.json()) as CachedAuditResult;
         },
       })),
-      3,
+      // Concurrency 1: Outscraper rate-limits aggregate request rate, and each
+      // audit makes 3-4 sub-requests. Running audits in parallel triggers 429s.
+      1,
       (e: RunAllEvent<CachedAuditResult>) => {
         setProgress({ done: e.done, total: e.total, inFlight: e.inFlight, queued: e.queued });
         setStatusBySlug((prev) => {
@@ -184,9 +186,10 @@ export function Overview() {
                   <h3 className="font-medium text-slate-900 mt-0.5">{f.title}</h3>
                   <p className="text-xs text-slate-600 mt-1">{f.summary}</p>
                   {cached && (
-                    <p className="text-[11px] text-slate-500 mt-2">
-                      Ran {new Date(cached.ranAt).toLocaleString()}
-                    </p>
+                    <div className="text-[11px] text-slate-500 mt-2 flex flex-wrap items-center gap-2">
+                      <span>Ran {new Date(cached.ranAt).toLocaleString()}</span>
+                      <SourceBadge source={cached.result.meta?.source} />
+                    </div>
                   )}
                   {live?.kind === "failed" && (
                     <p className="text-[11px] text-red-700 mt-2 truncate">Error: {live.error}</p>
