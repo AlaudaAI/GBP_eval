@@ -52,7 +52,6 @@ export async function fetchGbp(
     "logoCoverPhotoTypes",
     "videos",
     "photoUploaderOwnerFlag",
-    "duplicateCandidates",
   ];
 
   return {
@@ -80,7 +79,6 @@ export async function fetchGbp(
     posts: undefined,
     questions: undefined,
     reviews: undefined,
-    duplicateCandidates: undefined,
     unsupported,
   };
 }

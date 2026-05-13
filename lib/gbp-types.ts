@@ -62,9 +62,6 @@ export type GbpData = {
   questions?: GbpQuestion[];
   reviews?: GbpReview[];
 
-  // Duplicate hint: count of other listings sharing name+city
-  duplicateCandidates?: number;
-
   // Which fields the underlying source could not populate.
   unsupported?: string[];
 };
