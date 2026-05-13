@@ -4,6 +4,22 @@ import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { FEATURES } from "@/lib/features";
 import { useWorkspace } from "@/components/WorkspaceProvider";
+import { WorkspaceFallback } from "@/components/WorkspaceFallback";
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "business";
+}
+
+function todayISO(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 export default function FullReportPage() {
   const { activeProject, loading } = useWorkspace();
@@ -18,6 +34,15 @@ export default function FullReportPage() {
   }, []);
 
   useEffect(() => {
+    if (!activeProject) return;
+    const prevTitle = document.title;
+    document.title = `${slugify(activeProject.name)}_full_${todayISO()}`;
+    return () => {
+      document.title = prevTitle;
+    };
+  }, [activeProject?.name]);
+
+  useEffect(() => {
     if (!print) return;
     if (loading || !activeProject) return;
     const t = setTimeout(() => window.print(), 600);
@@ -25,7 +50,7 @@ export default function FullReportPage() {
   }, [print, loading, activeProject]);
 
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
-  if (!activeProject) return <p className="text-sm text-slate-500">No project.</p>;
+  if (!activeProject) return <WorkspaceFallback />;
 
   const ranAt = Object.values(activeProject.results).map((r) => r.ranAt);
   const latestRun = ranAt.length ? new Date(Math.max(...ranAt)) : null;
@@ -63,7 +88,10 @@ export default function FullReportPage() {
                   <span className={c.passed ? "text-emerald-700" : c.detail === "skipped: data source limited" ? "text-slate-500" : "text-red-700"}>
                     {c.passed ? "✓" : c.detail === "skipped: data source limited" ? "–" : "✗"}
                   </span>{" "}
-                  <span className="font-medium">{c.name}.</span>{" "}
+                  <span className="font-medium">
+                    {c.name}
+                    {c.optional ? " (optional)" : !c.optional && typeof c.weight === "number" && c.weight < 1 ? " (½ weight)" : ""}.
+                  </span>{" "}
                   <span className="text-slate-700">{c.detail}</span>
                 </li>
               ))}

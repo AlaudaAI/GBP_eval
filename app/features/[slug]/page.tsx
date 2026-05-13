@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import { FEATURES, findFeature } from "@/lib/features";
 import { useWorkspace } from "@/components/WorkspaceProvider";
+import { WorkspaceFallback } from "@/components/WorkspaceFallback";
 import { AuditForm } from "@/components/AuditForm";
 
 export default function FeaturePage() {
@@ -15,7 +16,7 @@ export default function FeaturePage() {
 
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
   if (!feature) return <p className="text-sm text-red-700">Unknown audit: {slug}</p>;
-  if (!activeProject) return <p className="text-sm text-slate-500">No project.</p>;
+  if (!activeProject) return <WorkspaceFallback />;
 
   const index = FEATURES.findIndex((f) => f.slug === feature.slug);
   const prev = FEATURES[index - 1];

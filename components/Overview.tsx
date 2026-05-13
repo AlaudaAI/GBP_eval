@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { FEATURES } from "@/lib/features";
 import { defaultValueForInput } from "@/lib/settings";
+import { overallFromResults } from "@/lib/eval-types";
 import { runAll, type RunAllEvent } from "@/lib/run-all";
 import type { CachedAuditResult } from "@/lib/workspace-types";
 import { useWorkspace } from "./WorkspaceProvider";
-import { StatusBadge } from "./ResultPanel";
+import { StatusBadge, SourceBadge } from "./ResultPanel";
 
 type AuditStatus =
   | { kind: "queued" }
@@ -24,11 +25,9 @@ export function Overview() {
 
   const overall = useMemo(() => {
     if (!activeProject) return null;
-    const results = Object.values(activeProject.results);
-    if (results.length === 0) return null;
-    const avg = Math.round(results.reduce((s, r) => s + r.result.score, 0) / results.length);
-    const status = avg >= 80 ? "pass" : avg >= 50 ? "warn" : "fail";
-    return { score: avg, status: status as "pass" | "warn" | "fail" };
+    return overallFromResults(
+      Object.values(activeProject.results).map((r) => r.result),
+    );
   }, [activeProject]);
 
   if (!activeProject) return null;
@@ -62,7 +61,9 @@ export function Overview() {
           return (await resp.json()) as CachedAuditResult;
         },
       })),
-      3,
+      // Concurrency 1: Outscraper rate-limits aggregate request rate, and each
+      // audit makes 3-4 sub-requests. Running audits in parallel triggers 429s.
+      1,
       (e: RunAllEvent<CachedAuditResult>) => {
         setProgress({ done: e.done, total: e.total, inFlight: e.inFlight, queued: e.queued });
         setStatusBySlug((prev) => {
@@ -73,8 +74,11 @@ export function Overview() {
           return next;
         });
         if (e.type === "ok") {
+          // e.key is the feature slug from the runAll task — the API response
+          // body doesn't echo it, so without this the cache key would be
+          // `undefined` and every card would show "not run".
           saveResult(activeProject.id, {
-            slug: e.value.slug,
+            slug: e.key,
             result: e.value.result,
             inputs: e.value.inputs,
             ranAt: e.value.ranAt,
@@ -96,8 +100,8 @@ export function Overview() {
           {activeProject.name} — GBP scoreboard
         </h1>
         <p className="text-sm text-slate-600 mt-1">
-          Five audits cover the 14 GBP best-practice items: core listing health, categories,
-          profile completeness, media, and engagement.
+          Three audits cover the GBP best-practice items: core listing health,
+          profile completeness, and media/Q&amp;A/reviews.
         </p>
       </header>
 
@@ -106,7 +110,9 @@ export function Overview() {
           <div className="text-4xl font-semibold tabular-nums">{overall ? overall.score : "—"}</div>
           {overall && <StatusBadge status={overall.status} />}
           <div className="text-sm text-slate-600">
-            {overall ? `Overall score across ${Object.keys(activeProject.results).length} audit(s).` : "No audits run yet."}
+            {overall
+              ? `Overall score: ${overall.passed} of ${overall.total} scored checks passed (optional checks excluded).`
+              : "No audits run yet."}
           </div>
         </div>
         {progress && (
@@ -184,9 +190,10 @@ export function Overview() {
                   <h3 className="font-medium text-slate-900 mt-0.5">{f.title}</h3>
                   <p className="text-xs text-slate-600 mt-1">{f.summary}</p>
                   {cached && (
-                    <p className="text-[11px] text-slate-500 mt-2">
-                      Ran {new Date(cached.ranAt).toLocaleString()}
-                    </p>
+                    <div className="text-[11px] text-slate-500 mt-2 flex flex-wrap items-center gap-2">
+                      <span>Ran {new Date(cached.ranAt).toLocaleString()}</span>
+                      <SourceBadge source={cached.result.meta?.source} />
+                    </div>
                   )}
                   {live?.kind === "failed" && (
                     <p className="text-[11px] text-red-700 mt-2 truncate">Error: {live.error}</p>

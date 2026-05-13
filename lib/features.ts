@@ -15,6 +15,8 @@ export type Feature = {
   whyItMatters: string;
   howToImplement: string[];
   inputs: FeatureInputField[];
+  // When true, this audit's score is not counted toward the overall project score.
+  optional?: boolean;
 };
 
 const PLACE_ID_INPUT: FeatureInputField = {
@@ -28,7 +30,7 @@ const PLACE_ID_INPUT: FeatureInputField = {
 export const FEATURES: Feature[] = [
   {
     slug: "core-listing",
-    shortLabel: "Core Listing",
+    shortLabel: "Core Listing Health",
     title: "Core Listing Health",
     summary:
       "Address, phone, website, business status, and duplicate listings.",
@@ -44,70 +46,35 @@ export const FEATURES: Feature[] = [
     inputs: [PLACE_ID_INPUT],
   },
   {
-    slug: "categories",
-    shortLabel: "Categories",
-    title: "Primary & Secondary Categories",
-    summary:
-      "Primary category match, 3–9 secondary categories, no vague top-level terms.",
-    whyItMatters:
-      "Google ranks you for the services tied to your primary category. Missing or vague categories means you don't show up for the queries your customers actually type.",
-    howToImplement: [
-      "Set the primary category to the most specific term that matches your main service.",
-      "Add 3–9 secondary categories covering every distinct service you offer.",
-      "Avoid generic top-level terms like \"Service\" or \"Establishment\".",
-      "Review categories quarterly — Google adds new ones every year.",
-      "Cross-check against the services listed on your website.",
-    ],
-    inputs: [PLACE_ID_INPUT],
-  },
-  {
     slug: "profile-completeness",
-    shortLabel: "Profile Sections",
+    shortLabel: "Profile Completeness",
     title: "Profile Completeness",
     summary:
-      "Description, regular hours, holiday hours, products, services, and attributes.",
+      "Primary category, logo, description, hours, services, attributes, and no vague categories.",
     whyItMatters:
       "A complete profile gives Google more signals to rank you, and gives customers fewer reasons to bounce. Empty sections show up as blank rows on your listing.",
     howToImplement: [
+      "Set a primary category that matches your main service — and avoid vague top-level terms like \"Service\" or \"Establishment\".",
+      "Upload a clean square logo at 720×720 minimum.",
       "Write a 200+ character description focused on what you do and who you serve.",
-      "Set regular hours for every day you operate.",
-      "Add holiday hours for the next 3 months (Thanksgiving, Christmas, etc.).",
-      "List products if applicable; list services either way.",
-      "Fill at least one attribute (wheelchair accessible, free Wi-Fi, by appointment).",
+      "Set regular hours for every day you operate, plus holiday hours for the next 3 months.",
+      "List every service you offer, and fill at least one attribute (wheelchair accessible, free Wi-Fi, by appointment).",
     ],
     inputs: [PLACE_ID_INPUT],
   },
   {
     slug: "media",
-    shortLabel: "Media",
-    title: "Photos, Videos, Logo & Cover",
+    shortLabel: "Media, Q&A & Reviews",
+    title: "Media, Q&A & Reviews",
     summary:
-      "Logo, cover photo, ≥10 total photos, ≥1 video, and recent owner uploads.",
+      "Owner answers on Q&A and a review-response rate ≥50%. Photo and video counts shown for context only.",
     whyItMatters:
-      "Listings with fresh photos get more clicks and direction requests. A missing logo or cover photo is the first thing a customer notices.",
+      "Q&A and review replies are direct customer-facing signals that earn trust and feed Google's freshness signal. Photo and video counts vary by industry, so they're reported but don't count toward the score.",
     howToImplement: [
-      "Upload a clean square logo at 720×720 minimum.",
-      "Upload a wide cover photo that shows your storefront or workplace.",
-      "Keep at least 10 photos on the profile at any time.",
-      "Add at least one short video (≤30 seconds) of your team or location.",
-      "Upload 3+ new photos every 90 days to signal you're active.",
-    ],
-    inputs: [PLACE_ID_INPUT],
-  },
-  {
-    slug: "engagement",
-    shortLabel: "Engagement",
-    title: "Posts, Q&A & Reviews",
-    summary:
-      "Recent Google Posts, owner answers on Q&A, and a review-response rate ≥50%.",
-    whyItMatters:
-      "Posts and replies signal to Google that your business is active. Customers reading your replies see whether you actually engage — or ignore them.",
-    howToImplement: [
-      "Publish a Google Post at least once a week.",
       "Answer every customer question in Q&A from the owner account.",
       "Reply to at least half of new reviews within a week.",
-      "Use review replies to address specifics, not generic thank-yous.",
-      "Pre-seed common questions you get from customers in the Q&A section.",
+      "Keep at least 10 photos on the profile at any time (optional, not scored).",
+      "Add at least one short video (≤30 seconds) of your team or location (optional, not scored).",
     ],
     inputs: [PLACE_ID_INPUT],
   },

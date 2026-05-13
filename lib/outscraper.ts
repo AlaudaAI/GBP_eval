@@ -7,6 +7,17 @@ const QA_URL = "https://api.outscraper.com/maps/questions-and-answers";
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
+const OUTSCRAPER_TIMEOUT_MS = 12_000;
+
+export class OutscraperNoProfileError extends Error {
+  readonly placeId: string;
+  constructor(placeId: string) {
+    super("Outscraper returned no profile for the given Place ID.");
+    this.name = "OutscraperNoProfileError";
+    this.placeId = placeId;
+  }
+}
+
 export async function fetchGbp(
   placeId: string,
   opts?: { apiKey?: string },
@@ -16,25 +27,36 @@ export async function fetchGbp(
 
   const headers = { "X-API-KEY": apiKey };
 
-  const [profileRaw, reviewsRaw, qaRaw] = await Promise.all([
-    fetchJSON(
-      `${SEARCH_URL}?query=${encodeURIComponent("place_id:" + placeId)}&limit=1&async=false&language=en`,
+  let profileRaw: unknown;
+  try {
+    profileRaw = await fetchJSON(
+      `${SEARCH_URL}?query=${encodeURIComponent(placeId)}&limit=1&async=false&language=en`,
       headers,
-    ),
-    fetchJSON(
-      `${REVIEWS_URL}?query=${encodeURIComponent("place_id:" + placeId)}&reviewsLimit=50&async=false&cutoff=${Math.floor((Date.now() - ONE_YEAR_MS) / 1000)}`,
-      headers,
-    ).catch(() => null),
-    fetchJSON(
-      `${QA_URL}?query=${encodeURIComponent("place_id:" + placeId)}&async=false&limit=20`,
-      headers,
-    ).catch(() => null),
-  ]);
+    );
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      // Distinguish timeouts from "not indexed" — the previous behavior
+      // conflated the two and routed timeouts to the Places fallback.
+      throw new Error(`Outscraper timed out fetching ${placeId} after ${OUTSCRAPER_TIMEOUT_MS}ms.`);
+    }
+    throw e;
+  }
 
   const profile = pickFirst(profileRaw);
   if (!profile) {
-    throw new Error("Outscraper returned no profile for the given Place ID.");
+    throw new OutscraperNoProfileError(placeId);
   }
+
+  const [reviewsRaw, qaRaw] = await Promise.all([
+    fetchJSON(
+      `${REVIEWS_URL}?query=${encodeURIComponent(placeId)}&reviewsLimit=50&async=false&cutoff=${Math.floor((Date.now() - ONE_YEAR_MS) / 1000)}`,
+      headers,
+    ).catch(() => null),
+    fetchJSON(
+      `${QA_URL}?query=${encodeURIComponent(placeId)}&async=false&limit=20`,
+      headers,
+    ).catch(() => null),
+  ]);
   const reviewsArr = pickList(reviewsRaw);
   const qaArr = pickList(qaRaw);
 
@@ -46,18 +68,22 @@ export async function fetchGbp(
     address: str(profile.full_address ?? profile.address),
     phone: str(profile.phone),
     website: str(profile.site ?? profile.website),
-    primaryCategory: str(profile.subtypes?.[0] ?? profile.type ?? profile.category),
-    secondaryCategories: arr(profile.categories ?? profile.subtypes)
-      .filter((c, i, all) => c && all.indexOf(c) === i)
-      .slice(1), // skip primary
-    description: str(profile.description),
+    primaryCategory: str(profile.category ?? profile.type ?? firstCategory(profile.subtypes)),
+    secondaryCategories: dedupeKeepingNonPrimary(
+      flattenCategories(profile.categories ?? profile.subtypes),
+      profile.category ?? profile.type,
+    ),
+    // Always a string (empty when missing) so the audit reports "0 chars"
+    // rather than skipping the check — Outscraper exposes description when
+    // the business has set one.
+    description: pickDescription(profile),
     hoursSet:
       isPlainObject(profile.working_hours) &&
       Object.keys(profile.working_hours).length > 0,
     holidayHoursSet: hasUpcomingHolidayHours(profile),
     hasProducts: Boolean(profile.products?.length),
     hasServices: Boolean(profile.services?.length),
-    attributes: arr(profile.about ?? profile.attributes).map(String),
+    attributes: flattenAttributes(profile.about ?? profile.attributes),
     photos: parsePhotos(profile.photos ?? profile.photos_data),
     logoPresent: Boolean(profile.logo ?? hasPhotoOfType(profile.photos, "logo")),
     coverPresent: Boolean(profile.cover ?? hasPhotoOfType(profile.photos, "cover")),
@@ -66,38 +92,28 @@ export async function fetchGbp(
     questions: parseQuestions(qaArr),
     reviews: parseReviews(reviewsArr),
     isPoBox: looksLikePoBox(profile.full_address ?? profile.address),
-    isVirtualOffice: false, // hard to detect from data; default false
-    duplicateCandidates: undefined, // separate request below if useful
+    isVirtualOffice: false,
   };
-
-  // Duplicate hint: search for the same name in the same city, ignoring this listing.
-  if (data.name) {
-    try {
-      const sameNameRaw = await fetchJSON(
-        `${SEARCH_URL}?query=${encodeURIComponent(data.name + (extractCity(data.address) ? " " + extractCity(data.address) : ""))}&limit=5&async=false`,
-        headers,
-      );
-      const matches = pickList(sameNameRaw)
-        .filter((r) => r && r.place_id && r.place_id !== placeId)
-        .filter((r) => normalizeName(r.name) === normalizeName(data.name!));
-      data.duplicateCandidates = matches.length;
-    } catch {
-      // Non-fatal: leave undefined.
-    }
-  }
 
   return data;
 }
 
 async function fetchJSON(url: string, headers: Record<string, string>) {
-  const resp = await fetch(url, { headers });
-  if (!resp.ok) {
-    throw new Error(`Outscraper ${resp.status}: ${await resp.text().catch(() => "")}`);
+  const controller = new AbortController();
+  const handle = setTimeout(() => controller.abort(), OUTSCRAPER_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, { headers, signal: controller.signal });
+    if (!resp.ok) {
+      throw new Error(
+        `Outscraper ${resp.status}: ${await resp.text().catch(() => "")}`,
+      );
+    }
+    return await resp.json();
+  } finally {
+    clearTimeout(handle);
   }
-  return resp.json();
 }
 
-// Outscraper wraps results in { data: [[{...}]] } typically. Be permissive.
 function pickFirst(raw: any): any {
   if (!raw) return null;
   if (Array.isArray(raw)) {
@@ -121,9 +137,63 @@ function pickList(raw: any): any[] {
 function str(v: any): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
-function arr(v: any): string[] {
-  if (Array.isArray(v)) return v.filter((x) => typeof x === "string");
-  return [];
+
+// Outscraper's `subtypes` is usually a comma-separated string. `categories`
+// is occasionally an array. Normalize to a deduped string list.
+function flattenCategories(v: any): string[] {
+  let parts: string[] = [];
+  if (Array.isArray(v)) parts = v.filter((x): x is string => typeof x === "string");
+  else if (typeof v === "string") parts = v.split(",");
+  return parts.map((s) => s.trim()).filter(Boolean);
+}
+
+function pickDescription(profile: any): string {
+  const candidates = [
+    profile.description,
+    profile.about?.description,
+    profile.editorial_summary,
+    profile.summary,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string") return c;
+  }
+  return "";
+}
+
+function firstCategory(v: any): string | undefined {
+  const list = flattenCategories(v);
+  return list[0];
+}
+
+function dedupeKeepingNonPrimary(list: string[], primary: any): string[] {
+  const primaryNorm = typeof primary === "string" ? primary.trim().toLowerCase() : "";
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of list) {
+    const norm = c.toLowerCase();
+    if (norm === primaryNorm) continue;
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(c);
+  }
+  return out;
+}
+
+// Outscraper's `about` is a nested object like
+//   { "Accessibility": { "Wheelchair-accessible entrance": true, ... },
+//     "Service options": { "Online appointments": true, ... } }
+// Flatten to a flat list of human-readable attribute names that are enabled.
+function flattenAttributes(v: any): string[] {
+  if (Array.isArray(v)) return v.map(String);
+  if (!v || typeof v !== "object") return [];
+  const out: string[] = [];
+  for (const section of Object.values(v as Record<string, unknown>)) {
+    if (!section || typeof section !== "object") continue;
+    for (const [name, enabled] of Object.entries(section as Record<string, unknown>)) {
+      if (enabled === true) out.push(name);
+    }
+  }
+  return out;
 }
 function isPlainObject(v: any): v is Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v);
@@ -132,17 +202,6 @@ function isPlainObject(v: any): v is Record<string, unknown> {
 function looksLikePoBox(address: any): boolean {
   if (typeof address !== "string") return false;
   return /\b(p\.?\s*o\.?\s*box|post office box)\b/i.test(address);
-}
-
-function extractCity(addr?: string): string {
-  if (!addr) return "";
-  // Best-effort: "123 Main St, Springfield, IL 62701, USA" → "Springfield"
-  const parts = addr.split(",").map((s) => s.trim());
-  return parts.length >= 3 ? parts[parts.length - 3] : "";
-}
-
-function normalizeName(n: string): string {
-  return n.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function hasUpcomingHolidayHours(profile: any): boolean {
@@ -250,5 +309,4 @@ function parseReviews(raw: any[]): GbpReview[] {
     .filter((r): r is GbpReview => r !== null);
 }
 
-// Re-export for tests / debugging
 export const _internals = { NINETY_DAYS_MS };
