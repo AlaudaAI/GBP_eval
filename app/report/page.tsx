@@ -6,6 +6,21 @@ import { FEATURES } from "@/lib/features";
 import { useWorkspace } from "@/components/WorkspaceProvider";
 import { WorkspaceFallback } from "@/components/WorkspaceFallback";
 
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "business";
+}
+
+function todayISO(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export default function FullReportPage() {
   const { activeProject, loading } = useWorkspace();
   const searchParams = useSearchParams();
@@ -17,6 +32,15 @@ export default function FullReportPage() {
       document.body.removeAttribute("data-report");
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeProject) return;
+    const prevTitle = document.title;
+    document.title = `${slugify(activeProject.name)}_full_${todayISO()}`;
+    return () => {
+      document.title = prevTitle;
+    };
+  }, [activeProject?.name]);
 
   useEffect(() => {
     if (!print) return;

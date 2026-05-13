@@ -18,6 +18,21 @@ function maxResultsRanAt(results: Record<string, { ranAt: number }>): number {
   return values.length === 0 ? 0 : Math.max(...values.map((r) => r.ranAt));
 }
 
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "business";
+}
+
+function todayISO(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export default function PlanReportPage() {
   const { activeProject, token, loading, savePlan } = useWorkspace();
   const searchParams = useSearchParams();
@@ -38,6 +53,15 @@ export default function PlanReportPage() {
       document.body.removeAttribute("data-report");
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeProject) return;
+    const prevTitle = document.title;
+    document.title = `${slugify(activeProject.name)}_plan_${todayISO()}`;
+    return () => {
+      document.title = prevTitle;
+    };
+  }, [activeProject?.name]);
 
   useEffect(() => {
     if (!token || !activeProject) return;
