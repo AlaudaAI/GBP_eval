@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useWorkspace } from "@/components/WorkspaceProvider";
 import { WorkspaceFallback } from "@/components/WorkspaceFallback";
 import { overallFromResults } from "@/lib/eval-types";
@@ -50,12 +50,17 @@ function todayISO(): string {
 
 export default function PlanReportPage() {
   const { activeProject, token, loading, savePlan } = useWorkspace();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const print = searchParams.get("print") === "1";
   const force = searchParams.get("force") === "1";
   const [plan, setPlan] = useState<ActionPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  // Track which latestRanAt we already force-regenerated for, so savePlan()
+  // updating activeProject doesn't bounce us back into another regen while
+  // ?force=1 is still in the URL.
+  const forceHandledForRanAt = useRef<number | null>(null);
 
   const latestRanAt = useMemo(
     () => (activeProject ? maxResultsRanAt(activeProject.results) : 0),
@@ -81,13 +86,25 @@ export default function PlanReportPage() {
   useEffect(() => {
     if (!token || !activeProject) return;
 
+    const cached = activeProject.cachedPlan;
+
+    // If we've already kicked off a force-regen for this audit run, treat
+    // subsequent renders as cached — otherwise savePlan() updating
+    // activeProject would re-enter this effect while ?force=1 is still in
+    // the URL and we'd regenerate forever.
+    if (force && forceHandledForRanAt.current === latestRanAt) {
+      if (cached) setPlan(cached.plan);
+      return;
+    }
+
     // Use cached plan unless audits have been re-run since it was generated
     // or the user passed ?force=1 to regenerate.
-    const cached = activeProject.cachedPlan;
     if (cached && !force && cached.generatedFromRanAt >= latestRanAt) {
       setPlan(cached.plan);
       return;
     }
+
+    if (force) forceHandledForRanAt.current = latestRanAt;
 
     let cancelled = false;
     setGenerating(true);
@@ -108,6 +125,9 @@ export default function PlanReportPage() {
           generatedAt: Date.now(),
           generatedFromRanAt: latestRanAt,
         });
+        // Drop the ?force=1 from the URL so future renders (and back/forward
+        // navigation) fall through to the cached branch.
+        if (force) router.replace("/report/plan");
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -117,7 +137,7 @@ export default function PlanReportPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, activeProject, force, latestRanAt, savePlan]);
+  }, [token, activeProject, force, latestRanAt, savePlan, router]);
 
   useEffect(() => {
     if (!print) return;
