@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { FEATURES } from "@/lib/features";
 import { defaultValueForInput } from "@/lib/settings";
+import { overallFromResults } from "@/lib/eval-types";
 import { runAll, type RunAllEvent } from "@/lib/run-all";
 import type { CachedAuditResult } from "@/lib/workspace-types";
 import { useWorkspace } from "./WorkspaceProvider";
@@ -24,14 +25,9 @@ export function Overview() {
 
   const overall = useMemo(() => {
     if (!activeProject) return null;
-    const scoredSlugs = new Set(FEATURES.filter((f) => !f.optional).map((f) => f.slug));
-    const results = Object.entries(activeProject.results)
-      .filter(([slug]) => scoredSlugs.has(slug))
-      .map(([, r]) => r);
-    if (results.length === 0) return null;
-    const avg = Math.round(results.reduce((s, r) => s + r.result.score, 0) / results.length);
-    const status = avg >= 80 ? "pass" : avg >= 50 ? "warn" : "fail";
-    return { score: avg, status: status as "pass" | "warn" | "fail", count: results.length };
+    return overallFromResults(
+      Object.values(activeProject.results).map((r) => r.result),
+    );
   }, [activeProject]);
 
   if (!activeProject) return null;
@@ -114,7 +110,9 @@ export function Overview() {
           <div className="text-4xl font-semibold tabular-nums">{overall ? overall.score : "—"}</div>
           {overall && <StatusBadge status={overall.status} />}
           <div className="text-sm text-slate-600">
-            {overall ? `Overall score across ${overall.count} scored audit(s); optional audits excluded.` : "No audits run yet."}
+            {overall
+              ? `Overall score: ${overall.passed} of ${overall.total} scored checks passed (optional checks excluded).`
+              : "No audits run yet."}
           </div>
         </div>
         {progress && (

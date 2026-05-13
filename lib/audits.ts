@@ -231,12 +231,13 @@ async function auditProfileCompleteness(data: GbpData) {
   }
 
   if (data.holidayHoursSet === undefined) {
-    checks.push({ name: "Holiday hours set for next 3 months", passed: false, detail: SKIPPED });
+    checks.push({ name: "Holiday hours set for next 3 months", passed: false, detail: SKIPPED, optional: true });
   } else {
     checks.push({
       name: "Holiday hours set for next 3 months",
       passed: data.holidayHoursSet,
       detail: data.holidayHoursSet ? "Holiday hours are set." : "No upcoming holiday hours found in the next 90 days.",
+      optional: true,
     });
     if (!data.holidayHoursSet) fallbackRecs.push("Add holiday hours for any upcoming closures so customers don't show up to a locked door.");
   }

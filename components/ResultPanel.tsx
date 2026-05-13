@@ -67,7 +67,14 @@ export function ResultPanel({ result }: { result: EvalResult }) {
                   }`}
                 />
                 <div className="flex-1">
-                  <div className="font-medium text-slate-900">{c.name}</div>
+                  <div className="font-medium text-slate-900">
+                    {c.name}
+                    {c.optional && (
+                      <span className="ml-2 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600">
+                        optional
+                      </span>
+                    )}
+                  </div>
                   <div className="text-slate-600">{c.detail}</div>
                 </div>
               </li>
