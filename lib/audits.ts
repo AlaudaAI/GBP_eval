@@ -59,7 +59,7 @@ async function finalize(
     meta?: Record<string, unknown>;
   },
 ): Promise<EvalResult> {
-  const scored = build.checks.filter((c) => c.detail !== SKIPPED);
+  const scored = build.checks.filter((c) => c.detail !== SKIPPED && !c.optional);
   const { score, status } = scoreFromChecks(scored);
   const recommendations = await enhanceRecommendations({
     feature,
@@ -278,25 +278,27 @@ async function auditMedia(data: GbpData) {
   const photos = data.photos ?? [];
   const photoCountKnown = data.photos !== undefined;
   if (!photoCountKnown) {
-    checks.push({ name: "At least 10 photos total", passed: false, detail: SKIPPED });
+    checks.push({ name: "At least 10 photos total", passed: false, detail: SKIPPED, optional: true });
   } else {
     const ok = photos.length >= 10;
     checks.push({
       name: "At least 10 photos total",
       passed: ok,
       detail: ok ? `${photos.length} photos on the profile.` : `Only ${photos.length} photos (target: 10+).`,
+      optional: true,
     });
     if (!ok) fallbackRecs.push("Add more photos — aim for at least 10 covering interior, exterior, team, and work samples.");
   }
 
   if (data.videoCount === undefined) {
-    checks.push({ name: "At least 1 video", passed: false, detail: SKIPPED });
+    checks.push({ name: "At least 1 video", passed: false, detail: SKIPPED, optional: true });
   } else {
     const hasVideo = data.videoCount >= 1;
     checks.push({
       name: "At least 1 video",
       passed: hasVideo,
       detail: hasVideo ? `${data.videoCount} video(s) uploaded.` : "No videos uploaded.",
+      optional: true,
     });
     if (!hasVideo) fallbackRecs.push("Upload a short video (≤30 seconds) to stand out in search results.");
   }

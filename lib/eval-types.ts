@@ -2,6 +2,9 @@ export type CheckResult = {
   name: string;
   passed: boolean;
   detail: string;
+  // When true, the check is shown in the report but does not count toward
+  // the audit's score.
+  optional?: boolean;
 };
 
 export type EvalResult = {

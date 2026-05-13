@@ -64,20 +64,19 @@ export const FEATURES: Feature[] = [
   },
   {
     slug: "media",
-    shortLabel: "Media, Q&A & Reviews (optional)",
-    title: "Media, Q&A & Reviews (optional)",
+    shortLabel: "Media, Q&A & Reviews",
+    title: "Media, Q&A & Reviews",
     summary:
-      "≥10 total photos, ≥1 video, owner answers on Q&A, and a review-response rate ≥50%.",
+      "Owner answers on Q&A and a review-response rate ≥50%. Photo and video counts shown for context only.",
     whyItMatters:
-      "Fresh photos and visible replies build trust at a glance. These signals help customers convert, but vary a lot by industry — so they don't count toward the overall score.",
+      "Q&A and review replies are direct customer-facing signals that earn trust and feed Google's freshness signal. Photo and video counts vary by industry, so they're reported but don't count toward the score.",
     howToImplement: [
-      "Keep at least 10 photos on the profile at any time.",
-      "Add at least one short video (≤30 seconds) of your team or location.",
       "Answer every customer question in Q&A from the owner account.",
       "Reply to at least half of new reviews within a week.",
+      "Keep at least 10 photos on the profile at any time (optional, not scored).",
+      "Add at least one short video (≤30 seconds) of your team or location (optional, not scored).",
     ],
     inputs: [PLACE_ID_INPUT],
-    optional: true,
   },
 ];
 
